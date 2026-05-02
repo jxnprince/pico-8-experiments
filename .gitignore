@@ -1,0 +1,12 @@
+.DS_Store
+*.pdf
+backup/
+bbs/
+cdata/
+cstore/
+plates/
+log.txt
+activity_log.txt
+config.txt
+sdl_controllers.txt
+favourites.txt
