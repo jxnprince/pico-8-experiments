@@ -111,7 +111,7 @@ br = 2         -- ball radius
 pspd = 3       -- paddle speed (px per frame)
 bump_dur = 8   -- frames the bump animation lasts
 bump_mult = 1.3 -- Speed multiplier for bump
-max_spd = 60       -- Top speed for the ball
+max_spd = 3       -- Top speed for the ball
 bump_cd_dur = 20  -- frames between allowed bumps
 friction = 0.999  -- velocity multiplier applied each frame (1 = no decay)
 min_spd = 1.666   -- minimum absolute y-speed so ball never crawls
@@ -119,6 +119,7 @@ min_spd = 1.666   -- minimum absolute y-speed so ball never crawls
 -- resets all game state, called when starting a new game
 function init_game()
   px = 64 - pw / 2
+  pdx = 0  -- paddle velocity this frame
   py = 116
   pyo = 0      -- paddle y offset (bump animation)
   pbump = 0    -- bump timer
@@ -132,32 +133,36 @@ function init_game()
   serving = true
 end
 
--- shifts paddle up and starts bump timer
+-- starts bump timer for velocity window; pyo is managed by button state
 function do_bump()
   pbump = bump_dur
   bump_cd = bump_cd_dur
-  pyo = -1
+  play_sfx(4)
 end
 
 function update_game()
-  -- move paddle
+  -- move paddle, track velocity
+  local prev_px = px
   if btn_held(btn_left) then
     px = max(0, px - pspd)
   end
   if btn_held(btn_right) then
     px = min(128 - pw, px + pspd)
   end
+  pdx = px - prev_px
 
   -- tick bump and cooldown timers
-  if pbump > 0 then
-    pbump -= 1
-    if pbump == 0 then pyo = 0 end
-  end
+  if pbump > 0 then pbump -= 1 end
   if bump_cd > 0 then bump_cd -= 1 end
 
   -- x triggers bump during gameplay if cooldown is clear
   if not serving and btn_pressed(btn_x) and bump_cd == 0 then
     do_bump()
+  end
+
+  -- paddle stays up while x is held, returns when released
+  if not serving then
+    pyo = btn_held(btn_x) and -1 or 0
   end
 
   -- ball follows paddle until served
@@ -219,9 +224,10 @@ function update_game()
   if crossed_top and in_x then
     by = epy - br
     bdy = -abs(bdy)
-    -- offset angle based on where ball hit along paddle width
+    -- blend incoming bdx with hit position angle and paddle velocity
     local hit = (bx - px) / pw  -- 0..1
-    bdx = (hit - 0.5) * 4
+    local angle_bdx = (hit - 0.5) * 4
+    bdx = bdx * 0.5 + angle_bdx * 0.2 + pdx * 0.5
     if pbump > 0 then
       bdx = mid(-max_spd, bdx * bump_mult, max_spd)
       bdy = mid(-max_spd, bdy * bump_mult, -0.5)
@@ -264,5 +270,6 @@ __gfx__
 __sfx__
 000100000b63009050080400704007030050300403003020020200102000030000300003000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00020000000203a71038710357103371031710300102f0102d0102b01029010270102601025110231102211020110201101e1101d1101b11019210162101421012210112100e3100c3100a310074100641003410
-00010000000101f6101b6100c3200f32010120131201a320204102141000100001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0001000025710277102a7102c7202e72031720337203572037710397103f710007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 000100000e6200f6200f6200f6200d7300d7300d7300c7300c7300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00010000210102101021010210102101021010200101e0101b0101901017020130201102000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
