@@ -110,11 +110,11 @@ ph = 3         -- paddle height
 br = 2         -- ball radius
 pspd = 3       -- paddle speed (px per frame)
 bump_dur = 8   -- frames the bump animation lasts
-bump_mult = 1.3
-max_spd = 4
-bump_cd_dur = 45  -- frames between allowed bumps
+bump_mult = 1.3 -- Speed multiplier for bump
+max_spd = 60       -- Top speed for the ball
+bump_cd_dur = 20  -- frames between allowed bumps
 friction = 0.999  -- velocity multiplier applied each frame (1 = no decay)
-min_spd = 1.2     -- minimum absolute y-speed so ball never crawls
+min_spd = 1.666   -- minimum absolute y-speed so ball never crawls
 
 -- resets all game state, called when starting a new game
 function init_game()
@@ -170,7 +170,8 @@ function update_game()
       if btn_held(btn_left) then dir = -1
       elseif btn_held(btn_right) then dir = 1
       end
-      bdx = dir * 1.5 * bump_mult
+      -- add small random offset so serve is never perfectly vertical
+      bdx = (dir * 1.5 + rnd(0.6) - 0.3) * bump_mult
       bdy = -1.5 * bump_mult
       serving = false
     end
@@ -184,30 +185,26 @@ function update_game()
   bx += bdx
   by += bdy
 
-  -- apply friction and enforce minimum y-speed
+  -- apply friction and enforce minimum speeds
   bdx *= friction
   bdy *= friction
   if abs(bdy) < min_spd then
     bdy = min_spd * sgn(bdy)
   end
-
   -- wall bounces
   if bx - br < 0 then
     bx = br
     bdx = -bdx
-    bdy += rnd(0.4) - 0.2
     play_sfx(0)
   end
   if bx + br > 127 then
     bx = 127 - br
     bdx = -bdx
-    bdy += rnd(0.4) - 0.2
     play_sfx(0)
   end
   if by - br < 0 then
     by = br
     bdy = -bdy
-    bdx += rnd(0.6) - 0.3
     play_sfx(0)
   end
 
