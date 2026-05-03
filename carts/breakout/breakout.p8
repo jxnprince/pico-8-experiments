@@ -16,6 +16,17 @@ function _init()
 
   settings = settings or { palette_i = 1 }
   sel_level = 1
+  sel_repeat = 0
+
+  local tb = 0
+  for i = 1, #level_defs do
+    tb += level_defs[i].bcols * level_defs[i].brows
+  end
+  local tgt = flr(32767 * 9 / 10)
+  brick_val_hi = flr(tgt / tb)
+  local rem = tgt - brick_val_hi * tb
+  brick_val_lo = flr(rem / tb * 10000)
+
   mode = "start"
 end
 
@@ -84,24 +95,57 @@ end
 --> START UP
 
 function update_start()
-  if btn_pressed(btn_left) then sel_level = max(1, sel_level - 1) end
-  if btn_pressed(btn_right) then sel_level = min(#level_defs, sel_level + 1) end
-  if btn_pressed(btn_x) then init_game(sel_level) end
+  local n = #level_defs
+  local moved = false
+
+  if btn_pressed(btn_left) then
+    sel_level = (sel_level - 2) % n + 1
+    sel_repeat = 20
+    moved = -1
+  elseif btn_held(btn_left) then
+    sel_repeat -= 1
+    if sel_repeat <= 0 then
+      sel_level = (sel_level - 2) % n + 1
+      sel_repeat = 4
+      moved = -1
+    end
+  elseif btn_pressed(btn_right) then
+    sel_level = sel_level % n + 1
+    sel_repeat = 20
+    moved = 1
+  elseif btn_held(btn_right) then
+    sel_repeat -= 1
+    if sel_repeat <= 0 then
+      sel_level = sel_level % n + 1
+      sel_repeat = 4
+      moved = 1
+    end
+  end
+
+  if moved == 1 then play_sfx(6)
+  elseif moved == -1 then play_sfx(7)
+  end
+
+  if btn_pressed(btn_x) then
+    play_sfx(8)
+    init_game(sel_level)
+  end
 end
 
 function draw_start()
   local lbl = "level "..sel_level
   local lx = 64 - #lbl * 2
-  if sel_level > 1 then print("<", lx - 6, 60, 6) end
+  print("<", lx - 6, 60, 6)
   print(lbl, lx, 60, 7)
-  if sel_level < #level_defs then print(">", lx + #lbl * 4 + 2, 60, 6) end
-  print("❎ start", 46, 74, 14)
+  print(">", lx + #lbl * 4 + 2, 60, 6)
+  print("❎ start", 50, 74, 14)
 end
 
 --> GAME OVER
 
 function update_gameover()
   if btn_pressed(btn_x) then
+    sel_level = level
     mode = "start"
   end
 end
@@ -208,6 +252,12 @@ function init_game(start_lvl)
   bdy = 0
   pbx = bx
   pby = by
+  lives = 2
+  score_hi = 0
+  score_lo = 0
+  life_flash_t = 0
+  paddle_passthrough = false
+  ball_in_score = false
   serving = true
   clear_delay = 0
   apply_level(level)
@@ -306,29 +356,29 @@ function update_game()
   -- swept top-face check: use prev_pyo for "was above" so pyo changes don't open gaps
   local crossed_top = pby + br <= py + prev_pyo and by + br >= epy
 
-  if crossed_top and in_x then
-    by = epy - br
-    bdy = -abs(bdy)
-    -- blend incoming bdx with hit position angle and paddle velocity
-    local hit = (bx - px) / pw  -- 0..1
-    local angle_bdx = (hit - 0.5) * 4
-    bdx = bdx * 0.5 + angle_bdx * 0.2 + pdx * 0.5
-    if pbump > 0 then
-      bdx = mid(-max_spd, bdx * bump_mult, max_spd)
-      bdy = mid(-max_spd, bdy * bump_mult, -0.5)
-      pbump = 0
-      play_sfx(2)
-    else
-      play_sfx(5)
-    end
-  elseif not crossed_top then
-    -- side collision: ball entered paddle from left or right
-    local in_y = by + br >= epy and by - br <= epy + ph
-    if in_y then
-      if pbx + br < px and bx + br >= px then
-        bdx = abs(bdx)
-      elseif pbx - br > px + pw and bx - br <= px + pw then
-        bdx = -abs(bdx)
+  if not paddle_passthrough then
+    if crossed_top and in_x then
+      by = epy - br
+      bdy = -abs(bdy)
+      local hit = (bx - px) / pw
+      local angle_bdx = (hit - 0.5) * 4
+      bdx = bdx * 0.5 + angle_bdx * 0.2 + pdx * 0.5
+      if pbump > 0 then
+        bdx = mid(-max_spd, bdx * bump_mult, max_spd)
+        bdy = mid(-max_spd, bdy * bump_mult, -0.5)
+        pbump = 0
+        play_sfx(2)
+      else
+        play_sfx(5)
+      end
+    elseif not crossed_top then
+      local in_y = by + br >= epy and by - br <= epy + ph
+      if in_y then
+        if pbx + br < px and bx + br >= px then
+          bdx = abs(bdx)
+        elseif pbx - br > px + pw and bx - br <= px + pw then
+          bdx = -abs(bdx)
+        end
       end
     end
   end
@@ -342,10 +392,38 @@ function update_game()
     if clear_delay == 0 then start_transition() end
   end
 
-  -- ball lost
-  if by - br > 128 then
-  		play_sfx(1)
-    mode = "gameover"
+  -- score hud overlap sfx
+  local sc_x = 127 - #fmt_score() * 4
+  local in_score = by - br < 8 and bx + br >= sc_x
+  if in_score and not ball_in_score then play_sfx(10) end
+  ball_in_score = in_score
+
+  -- clear passthrough once ball is safely above paddle
+  if paddle_passthrough and by < py - 20 then
+    paddle_passthrough = false
+  end
+
+  -- tick life flash
+  if life_flash_t > 0 then life_flash_t -= 1 end
+
+  -- bottom collision
+  if by + br > 127 then
+    if lives > 0 then
+      by = 127 - br
+      bdy = -abs(bdy)
+      bdx = flr(bdx / 2)
+      bdy = flr(bdy / 2)
+      if abs(bdy) < min_spd then bdy = -min_spd end
+      lives -= 1
+      life_flash_t = 45
+      paddle_passthrough = true
+      play_sfx(1)
+    else
+      play_sfx(9)
+      score_hi = 0
+      score_lo = 0
+      mode = "gameover"
+    end
   end
 end
 
@@ -363,6 +441,7 @@ function update_bricks()
         else
           bdx = -bdx
         end
+        add_score()
         play_sfx(3)
         if all_cleared() then clear_delay = 15 end
       end
@@ -429,8 +508,44 @@ function draw_bricks()
   end
 end
 
+function add_score()
+  local spd = sqrt(bdx*bdx + bdy*bdy)
+  local factor = max(1, spd / min_spd) * (level / #level_defs)
+  local slo = flr(brick_val_lo * factor)
+  local shi = flr(brick_val_hi * factor) + flr(slo / 10000)
+  score_lo += slo % 10000
+  if score_lo >= 10000 then
+    score_hi += flr(score_lo / 10000)
+    score_lo = score_lo % 10000
+  end
+  score_hi += shi
+end
+
+function fmt_score()
+  local lo = tostr(score_lo)
+  while #lo < 4 do lo = "0"..lo end
+  local s = score_hi > 0 and tostr(score_hi)..lo or tostr(score_lo)
+  local r = ""
+  for i = 1, #s do
+    if i > 1 and (#s - i + 1) % 3 == 0 then r = r.."," end
+    r = r..sub(s, i, i)
+  end
+  return r
+end
+
+function draw_hud()
+  rectfill(0, 0, 127, 8, 0)
+  print("l"..level, 1, 1, 6)
+  local lhp = lives > 0 and "" or "♥"
+  for i = 1, lives do lhp = lhp.."♥" end
+  print(lhp, 17, 1, lives > 0 and 8 or 5)
+  local sc = fmt_score()
+  print(sc, 127 - #sc * 4, 1, 7)
+end
+
 function draw_game()
   draw_bricks()
+  draw_hud()
   -- drop shadows
   rectfill(px+1, py+1, px+pw+1, py+ph+1, 0)
   circfill(bx+1, by+1, br, 0)
@@ -439,6 +554,11 @@ function draw_game()
   circfill(bx, by, br, 13)
   -- shine
   pset(bx-1, by-1, 7)
+  -- life lost flash
+  if life_flash_t > 0 then
+    local col = life_flash_t > 30 and 7 or (life_flash_t > 15 and 8 or 2)
+    print("-1♥", 52, 56, col)
+  end
 end
 
 __gfx__
@@ -450,8 +570,13 @@ __gfx__
 00700700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __sfx__
 000100000b63009050080400704007030050300403003020020200102000030000300003000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00020000000203a71038710357103371031710300102f0102d0102b01029010270102601025110231102211020110201101e1101d1101b11019210162101421012210112100e3100c3100a310074100641003410
+00020000146201462038720357203372031710300102f0102d0102b01029010270102601025110231102211020110201101e1101d1101b11019210162101421012210112100e3100c3100a310074100641003410
 000100000e6100301004010070200a0200d02010020150201a0102001026010007000000022000220000000000000210002100000000000001e0001f000000000000000000190001800000000000000000000000
 000100000371004610066100a6100c7200b7200972007720077200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0001000019020130200e020050302100021000200001e0001b0001900017000130001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0001000018020116200c0200902002020020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000400002801000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000400001f01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000100000704008040090400b0300c0300d0300f030100301302016020190201b0201e01024010290102d01035010000000000000000000000000000000000000000000000000000000000000000000000000000
+000200001a4202043024440286502d6503365034650336402f6402a63027630226301f6201f6201e6201d6101c6101a6201862013410134101241011420104300f4200d4200b4300942008420064200441000450
+0003000014620146201462019600302002c6202c6202f2203722039200382003d2003f20000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
