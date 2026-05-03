@@ -15,7 +15,7 @@ function _init()
   input = {}
 
   settings = settings or { palette_i = 1 }
-
+  sel_level = 1
   mode = "start"
 end
 
@@ -84,13 +84,18 @@ end
 --> START UP
 
 function update_start()
-  if btn_pressed(btn_x) then
-    init_game()
-  end
+  if btn_pressed(btn_left) then sel_level = max(1, sel_level - 1) end
+  if btn_pressed(btn_right) then sel_level = min(#level_defs, sel_level + 1) end
+  if btn_pressed(btn_x) then init_game(sel_level) end
 end
 
 function draw_start()
-  print("❎ start", 46, 70, 14)
+  local lbl = "level "..sel_level
+  local lx = 64 - #lbl * 2
+  if sel_level > 1 then print("<", lx - 6, 60, 6) end
+  print(lbl, lx, 60, 7)
+  if sel_level < #level_defs then print(">", lx + #lbl * 4 + 2, 60, 6) end
+  print("❎ start", 46, 74, 14)
 end
 
 --> GAME OVER
@@ -111,7 +116,7 @@ end
 pw = 24        -- paddle width
 ph = 2         -- paddle height
 br = 2         -- ball radius
-pspd = 3       -- paddle speed (px per frame)
+pspd = 3.2     -- paddle speed (px per frame)
 bump_dur = 8   -- frames the bump animation lasts
 bump_mult = 1.3 -- Speed multiplier for bump
 max_spd = 3       -- Top speed for the ball
@@ -124,17 +129,27 @@ bgap_y = 3     -- gap between brick rows
 bstart_y = 10  -- top margin
 
 level_defs = {
-  {bw=28, bh=3, bcols=3,  brows=1},
-  {bw=28, bh=3, bcols=3,  brows=2},
-  {bw=20, bh=3, bcols=4,  brows=2},
-  {bw=20, bh=3, bcols=4,  brows=3},
-  {bw=14, bh=3, bcols=6,  brows=3},
-  {bw=14, bh=3, bcols=6,  brows=4},
-  {bw=10, bh=3, bcols=8,  brows=4},
-  {bw=10, bh=3, bcols=8,  brows=5},
-  {bw=9,  bh=2, bcols=10, brows=5},
-  {bw=9,  bh=2, bcols=10, brows=6},
-  {bw=7,  bh=2, bcols=12, brows=7},
+  {bw=28, bh=3, bcols=4,  brows=1}, -- 1
+  {bw=28, bh=3, bcols=4,  brows=2}, -- 2
+  {bw=28, bh=3, bcols=4,  brows=4}, -- 3
+  {bw=20, bh=3, bcols=5,  brows=2}, -- 4
+  {bw=20, bh=3, bcols=5,  brows=4}, -- 5
+  {bw=20, bh=3, bcols=5,  brows=6}, -- 6
+  {bw=14, bh=3, bcols=7,  brows=4}, -- 7
+  {bw=14, bh=3, bcols=7,  brows=6}, -- 8
+  {bw=10, bh=3, bcols=9,  brows=2}, -- 9
+  {bw=10, bh=3, bcols=9,  brows=4}, -- 10
+  {bw=10, bh=3, bcols=9,  brows=6}, -- 11
+  {bw=10, bh=2, bcols=9,  brows=4}, -- 12
+  {bw=10, bh=2, bcols=9,  brows=6}, -- 13
+  {bw=9,  bh=2, bcols=10, brows=6}, -- 14
+  {bw=8,  bh=2, bcols=11, brows=6}, -- 15
+  {bw=7,  bh=2, bcols=11, brows=6}, -- 16
+  {bw=6,  bh=2, bcols=13, brows=6}, -- 17
+  {bw=5,  bh=2, bcols=15, brows=6}, -- 18
+  {bw=4,  bh=2, bcols=18, brows=6}, -- 19
+  {bw=3,  bh=2, bcols=21, brows=6}, -- 20
+  {bw=1,  bh=2, bcols=30, brows=6}, -- 21
 }
 
 function init_bricks()
@@ -179,11 +194,11 @@ function start_transition()
 end
 
 -- resets all game state, called when starting a new game
-function init_game()
-  level = 1
+function init_game(start_lvl)
+  level = start_lvl or 1
   px = 64 - pw / 2
   pdx = 0
-  py = 116
+  py = 120
   pyo = 0
   pbump = 0
   bump_cd = 0
@@ -195,7 +210,7 @@ function init_game()
   pby = by
   serving = true
   clear_delay = 0
-  apply_level(1)
+  apply_level(level)
   trans_timer = 150
   mode = "transition"
 end
@@ -304,7 +319,7 @@ function update_game()
       pbump = 0
       play_sfx(2)
     else
-      play_sfx(3)
+      play_sfx(5)
     end
   elseif not crossed_top then
     -- side collision: ball entered paddle from left or right
@@ -436,6 +451,7 @@ __gfx__
 __sfx__
 000100000b63009050080400704007030050300403003020020200102000030000300003000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00020000000203a71038710357103371031710300102f0102d0102b01029010270102601025110231102211020110201101e1101d1101b11019210162101421012210112100e3100c3100a310074100641003410
-00010000020100301004010070200a0200d02010020150201a0102001026010007000000022000220000000000000210002100000000000001e0001f000000000000000000190001800000000000000000000000
-000100000e6200f6200f6200f6200d7300d7300d7300c7300c7300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0001000019010130100e010210002100021000200001e0001b0001900017000130001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000100000e6100301004010070200a0200d02010020150201a0102001026010007000000022000220000000000000210002100000000000001e0001f000000000000000000190001800000000000000000000000
+000100000371004610066100a6100c7200b7200972007720077200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0001000019020130200e020050302100021000200001e0001b0001900017000130001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0001000018020116200c0200902002020020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
