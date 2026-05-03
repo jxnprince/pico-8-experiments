@@ -26,6 +26,8 @@ function _update60()
     update_start()
   elseif mode == "game" then
     update_game()
+  elseif mode == "transition" then
+    update_transition()
   elseif mode == "gameover" then
     update_gameover()
   end
@@ -38,6 +40,8 @@ function _draw()
     draw_start()
   elseif mode == "game" then
     draw_game()
+  elseif mode == "transition" then
+    draw_transition()
   elseif mode == "gameover" then
     draw_gameover()
   end
@@ -82,7 +86,6 @@ end
 function update_start()
   if btn_pressed(btn_x) then
     init_game()
-    mode = "game"
   end
 end
 
@@ -116,14 +119,74 @@ bump_cd_dur = 20  -- frames between allowed bumps
 friction = 0.999  -- velocity multiplier applied each frame (1 = no decay)
 min_spd = 1.666   -- minimum absolute y-speed so ball never crawls
 
+bgap = 3       -- gap between bricks (x)
+bgap_y = 3     -- gap between brick rows
+bstart_y = 10  -- top margin
+
+level_defs = {
+  {bw=28, bh=3, bcols=3,  brows=1},
+  {bw=28, bh=3, bcols=3,  brows=2},
+  {bw=20, bh=3, bcols=4,  brows=2},
+  {bw=20, bh=3, bcols=4,  brows=3},
+  {bw=14, bh=3, bcols=6,  brows=3},
+  {bw=14, bh=3, bcols=6,  brows=4},
+  {bw=10, bh=3, bcols=8,  brows=4},
+  {bw=10, bh=3, bcols=8,  brows=5},
+  {bw=9,  bh=2, bcols=10, brows=5},
+  {bw=9,  bh=2, bcols=10, brows=6},
+  {bw=7,  bh=2, bcols=12, brows=7},
+}
+
+function init_bricks()
+  bricks = {}
+  local grid_w = bcols * bw + (bcols - 1) * bgap
+  local shift = flr((bw + bgap) / 2)
+  local extra = brows > 1 and shift or 0
+  local ox = flr((128 - grid_w - extra) / 2)
+  for r = 0, brows - 1 do
+    local row_x = ox + (r % 2 == 1 and shift or 0)
+    for c = 0, bcols - 1 do
+      add(bricks, {
+        x = row_x + c * (bw + bgap),
+        y = bstart_y + r * (bh + bgap_y),
+        alive = true
+      })
+    end
+  end
+end
+
+function apply_level(lvl)
+  local def = level_defs[min(lvl, #level_defs)]
+  bw = def.bw
+  bh = def.bh
+  bcols = def.bcols
+  brows = def.brows
+  init_bricks()
+end
+
+function all_cleared()
+  for b in all(bricks) do
+    if b.alive then return false end
+  end
+  return true
+end
+
+function start_transition()
+  level += 1
+  apply_level(level)
+  trans_timer = 150
+  mode = "transition"
+end
+
 -- resets all game state, called when starting a new game
 function init_game()
+  level = 1
   px = 64 - pw / 2
-  pdx = 0  -- paddle velocity this frame
+  pdx = 0
   py = 116
-  pyo = 0      -- paddle y offset (bump animation)
-  pbump = 0    -- bump timer
-  bump_cd = 0  -- bump cooldown timer
+  pyo = 0
+  pbump = 0
+  bump_cd = 0
   bx = 64
   by = py - br
   bdx = 0
@@ -131,6 +194,10 @@ function init_game()
   pbx = bx
   pby = by
   serving = true
+  clear_delay = 0
+  apply_level(1)
+  trans_timer = 150
+  mode = "transition"
 end
 
 -- starts bump timer for velocity window; pyo is managed by button state
@@ -251,6 +318,15 @@ function update_game()
     end
   end
 
+  -- brick collisions
+  update_bricks()
+
+  -- level clear delay
+  if clear_delay > 0 then
+    clear_delay -= 1
+    if clear_delay == 0 then start_transition() end
+  end
+
   -- ball lost
   if by - br > 128 then
   		play_sfx(1)
@@ -258,7 +334,88 @@ function update_game()
   end
 end
 
+function update_bricks()
+  for b in all(bricks) do
+    if b.alive then
+      local hit = bx+br > b.x and bx-br < b.x+bw
+              and by+br > b.y and by-br < b.y+bh
+      if hit then
+        b.alive = false
+        local was_above = pby + br <= b.y
+        local was_below = pby - br >= b.y + bh
+        if was_above or was_below then
+          bdy = -bdy
+        else
+          bdx = -bdx
+        end
+        play_sfx(3)
+        if all_cleared() then clear_delay = 15 end
+      end
+    end
+  end
+end
+
+function update_transition()
+  local prev_px = px
+  if btn_held(btn_left) then px = max(0, px - pspd) end
+  if btn_held(btn_right) then px = min(128 - pw, px + pspd) end
+  pdx = px - prev_px
+
+  if pbump > 0 then pbump -= 1 end
+  if bump_cd > 0 then bump_cd -= 1 end
+
+  if not serving then
+    if btn_pressed(btn_x) and bump_cd == 0 then do_bump() end
+    pyo = btn_held(btn_x) and -1 or 0
+  end
+
+  if serving then
+    bx = px + pw / 2
+    by = py + pyo - br
+  end
+  trans_timer -= 1
+  if serving then
+    if trans_timer <= 90 then mode = "game" end
+  else
+    if trans_timer <= 0 then mode = "game" end
+  end
+end
+
+function draw_transition()
+  draw_game()
+  local msg, col
+  if serving then
+    msg = "level "..level
+    col = 7
+  else
+    local phase = flr((trans_timer - 1) / 30)
+    if phase == 4 then
+      msg = "level "..level  col = 7
+    elseif phase == 3 then
+      msg = "3"              col = 8
+    elseif phase == 2 then
+      msg = "2"              col = 9
+    elseif phase == 1 then
+      msg = "1"              col = 10
+    else
+      msg = "go!"            col = 11
+    end
+  end
+  local x = 64 - #msg * 4
+  print("\^w\^t"..msg, x, 56, col)
+end
+
+function draw_bricks()
+  for b in all(bricks) do
+    if b.alive then
+      rectfill(b.x+1, b.y+1, b.x+bw+1, b.y+bh+1, 0)
+      rectfill(b.x, b.y, b.x+bw, b.y+bh, 5)
+    end
+  end
+end
+
 function draw_game()
+  draw_bricks()
   -- drop shadows
   rectfill(px+1, py+1, px+pw+1, py+ph+1, 0)
   circfill(bx+1, by+1, br, 0)
