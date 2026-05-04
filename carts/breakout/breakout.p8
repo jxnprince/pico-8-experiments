@@ -41,6 +41,8 @@ function _update60()
     update_transition()
   elseif mode == "gameover" then
     update_gameover()
+  elseif mode == "win" then
+    update_win()
   end
 end
 
@@ -55,6 +57,8 @@ function _draw()
     draw_transition()
   elseif mode == "gameover" then
     draw_gameover()
+  elseif mode == "win" then
+    draw_win()
   end
 end
 
@@ -130,29 +134,72 @@ function update_start()
     play_sfx(8)
     init_game(sel_level)
   end
+  if btn_pressed(btn_o) then
+    mode = "win"
+  end
 end
 
 function draw_start()
-  local lbl = "level "..sel_level
+  -- top half reserved for logo tilemap
+  local lbl = "level "..(sel_level < 10 and " " or "")..sel_level
   local lx = 64 - #lbl * 2
-  print("<", lx - 6, 60, 6)
-  print(lbl, lx, 60, 7)
-  print(">", lx + #lbl * 4 + 2, 60, 6)
-  print("❎ start", 50, 74, 14)
+  print("<", lx - 6, 84, 6)
+  print(lbl, lx, 84, 7)
+  print(">", lx + #lbl * 4 + 2, 84, 6)
+  print("❎ start", 50, 98, 14)
+end
+
+--> WIN
+
+function update_win()
+  if btn_pressed(btn_x) then
+    sel_level = 1
+    mode = "start"
+  end
+end
+
+function draw_win()
+  local title = "you win!"
+  print("\^w\^t"..title, 64 - #title * 4, 36, 11)
+  local sc = fmt_score()
+  print(sc, 64 - #sc * 2, 62, 7)
+  print("❎ to start", 40, 78, 14)
 end
 
 --> GAME OVER
 
 function update_gameover()
+  if go_flash > 0 then
+    go_flash -= 1
+    return
+  end
   if btn_pressed(btn_x) then
+    init_game(level)
+  elseif btn_pressed(btn_o) then
     sel_level = level
     mode = "start"
   end
 end
 
 function draw_gameover()
-  print("game over", 42, 55, 9)
-  print("❎ to restart", 36, 70, 14)
+  if go_flash > 25 then
+    draw_game()
+  else
+    print("\^w\^tgame over", 28, 28, 8)
+    local lvl = "level "..level
+    print(lvl, 64 - #lvl * 2, 50, 6)
+    local sc = fmt_score()
+    print(sc, 64 - #sc * 2, 62, 7)
+    if go_flash == 0 then
+      print("❎ retry", 46, 74, 14)
+      print("🅾️ menu", 46, 82, 14)
+    else
+      local p = go_flash > 18 and 0xeeee or (go_flash > 12 and 0xcccc or (go_flash > 6 and 0x8888 or 0x2222))
+      fillp(p)
+      rectfill(0, 0, 127, 127, 1)
+      fillp()
+    end
+  end
 end
 
 --> GAMEPLAY
@@ -232,6 +279,10 @@ end
 
 function start_transition()
   level += 1
+  if level > #level_defs then
+    mode = "win"
+    return
+  end
   apply_level(level)
   trans_timer = 150
   mode = "transition"
@@ -258,6 +309,7 @@ function init_game(start_lvl)
   life_flash_t = 0
   paddle_passthrough = false
   ball_in_score = false
+  go_flash = 0
   serving = true
   clear_delay = 0
   apply_level(level)
@@ -420,8 +472,7 @@ function update_game()
       play_sfx(1)
     else
       play_sfx(9)
-      score_hi = 0
-      score_lo = 0
+      go_flash = 145
       mode = "gameover"
     end
   end
@@ -522,9 +573,9 @@ function add_score()
 end
 
 function fmt_score()
-  local lo = tostr(score_lo)
+  local lo = tostr(score_lo or 0)
   while #lo < 4 do lo = "0"..lo end
-  local s = score_hi > 0 and tostr(score_hi)..lo or tostr(score_lo)
+  local s = (score_hi or 0) > 0 and tostr(score_hi)..lo or tostr(score_lo or 0)
   local r = ""
   for i = 1, #s do
     if i > 1 and (#s - i + 1) % 3 == 0 then r = r.."," end
