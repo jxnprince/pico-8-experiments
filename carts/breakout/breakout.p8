@@ -27,6 +27,9 @@ function _init()
   local rem = tgt - brick_val_hi * tb
   brick_val_lo = flr(rem / tb * 10000)
 
+  cartdata("jxn_breakout_v3")
+  hs_init()
+  resolve_palette(settings.palette_i)
   mode = "start"
 end
 
@@ -37,17 +40,25 @@ function _update60()
     update_start()
   elseif mode == "game" then
     update_game()
+    update_particles()
   elseif mode == "transition" then
     update_transition()
+    update_particles()
   elseif mode == "gameover" then
     update_gameover()
+    update_particles()
   elseif mode == "win" then
     update_win()
+  elseif mode == "hiscore" then
+    update_hiscore()
+  elseif mode == "initials" then
+    update_initials()
   end
 end
 
 -- clears screen and routes draw to current mode
 function _draw()
+  apply_palette()
   cls(1)
   if mode == "start" then
     draw_start()
@@ -59,6 +70,10 @@ function _draw()
     draw_gameover()
   elseif mode == "win" then
     draw_win()
+  elseif mode == "hiscore" then
+    draw_hiscore()
+  elseif mode == "initials" then
+    draw_initials()
   end
 end
 
@@ -96,6 +111,72 @@ function btn_pressed(b)
   return input.pressed[b]
 end
 
+--> PALETTES
+
+palette_names = {
+  "classic",
+  "submarine",
+  "pastel",
+  "matcha",
+  "rhenium",
+  "bokju",
+  "pong",
+  "g boy",
+  "v boy",
+  "random"
+}
+
+-- {bg, mid, fg, hi, alert, lo}
+-- bg=background
+-- mid=bricks/hud text
+-- fg=paddle+ball
+-- hi=titles/highlights
+-- alert=hearts/damage
+-- lo=shadows
+palettes = {
+  {1, 13, 13, 7,  8, -16},       -- classic
+  {-13, -8, 13, 7, -8, -15},     -- submarine
+  {-4, -2, 12, 7, -8, 1},        -- pastel
+  {3, -5, 11, -6, -2, -13},      -- matcha
+  {-15, 14, -2, 15, -1, -3},     -- rhenium
+  {5, 6, 6, -10, 7, 0},          -- bokju
+  {0, 7, 7, 7, 7, 0},            -- pong
+  {-6, -5, -5, -9, 3, -13},      -- game boy
+  {0, -8, -8, 7, 8, -14},        -- virtual boy
+  {-17,-17, -17, -17, -17, -17}, -- random
+}
+
+
+cur_palette = {}
+
+function resolve_palette(i)
+  local p = palettes[i]
+  cur_palette = {}
+  for j = 1, 6 do
+    local c = p[j]
+    cur_palette[j] = (c == -17) and flr(rnd(32)) - 16 or c
+  end
+end
+
+function apply_palette()
+  local c = cur_palette
+  pal()
+  pal(1,  c[1], 1)  -- bg
+  pal(5,  c[2], 1)  -- mid
+  pal(6,  c[2], 1)  -- mid
+  pal(3,  c[2], 1)  -- mid
+  pal(13, c[3], 1)  -- fg
+  pal(14, c[3], 1)  -- fg
+  pal(12, c[3], 1)  -- fg
+  pal(7,  c[4], 1)  -- hi
+  pal(10, c[4], 1)  -- hi
+  pal(11, c[4], 1)  -- hi
+  pal(8,  c[5], 1)  -- alert
+  pal(9,  c[5], 1)  -- alert
+  pal(2,  c[5], 1)  -- alert
+  pal(0,  c[6], 1)  -- lo (shadows)
+end
+
 --> START UP
 
 function update_start()
@@ -130,23 +211,43 @@ function update_start()
   elseif moved == -1 then play_sfx(7)
   end
 
+  if btn_pressed(btn_up) then
+    settings.palette_i = settings.palette_i % #palettes + 1
+    resolve_palette(settings.palette_i)
+    play_sfx(6)
+  elseif btn_pressed(btn_down) then
+    settings.palette_i = (settings.palette_i - 2) % #palettes + 1
+    resolve_palette(settings.palette_i)
+    play_sfx(7)
+  end
+
   if btn_pressed(btn_x) then
     play_sfx(8)
     init_game(sel_level)
   end
   if btn_pressed(btn_o) then
-    mode = "win"
+    mode = "hiscore"
   end
 end
 
 function draw_start()
-  -- top half reserved for logo tilemap
+  -- nav controls group
   local lbl = "level "..(sel_level < 10 and " " or "")..sel_level
   local lx = 64 - #lbl * 2
-  print("<", lx - 6, 84, 6)
-  print(lbl, lx, 84, 7)
-  print(">", lx + #lbl * 4 + 2, 84, 6)
-  print("❎ start", 50, 98, 14)
+  print("⬅️", lx - 10, 94, 6)
+  print(lbl, lx, 94, 7)
+  print("➡️", lx + #lbl * 4 + 2, 94, 6)
+
+  local pn = palette_names[settings.palette_i]
+  local ppx = 64 - #pn * 2
+  print("⬆️", ppx - 10, 104, 6)
+  print(pn, ppx, 104, 5)
+  print("⬇️", ppx + #pn * 4 + 2, 104, 6)
+
+  -- action buttons: same row near bottom
+  -- ❎ start = 32px, gap 6px, 🅾️ hi scores = 48px ヌ●★ total 86px centered
+  print("❎ start", 21, 119, 14)
+  print("🅾️ hi scores", 59, 119, 14)
 end
 
 --> WIN
@@ -171,13 +272,15 @@ end
 function update_gameover()
   if go_flash > 0 then
     go_flash -= 1
+    if go_flash == 0 and new_hs_pos then
+      init_initials()
+    end
     return
   end
   if btn_pressed(btn_x) then
     init_game(level)
   elseif btn_pressed(btn_o) then
-    sel_level = level
-    mode = "start"
+    mode = "hiscore"
   end
 end
 
@@ -187,12 +290,15 @@ function draw_gameover()
   else
     print("\^w\^tgame over", 28, 28, 8)
     local lvl = "level "..level
-    print(lvl, 64 - #lvl * 2, 50, 6)
+    print(lvl, 64 - #lvl * 2, 48, 6)
     local sc = fmt_score()
-    print(sc, 64 - #sc * 2, 62, 7)
+    print(sc, 64 - #sc * 2, 58, 7)
     if go_flash == 0 then
-      print("❎ retry", 46, 74, 14)
-      print("🅾️ menu", 46, 82, 14)
+      if new_hs_pos then
+        print("new hi score!", 64-13*2, 70, 10)
+      end
+      print("❎ retry", 46, 80, 14)
+      print("🅾️ hi scores", 46, 88, 14)
     else
       local p = go_flash > 18 and 0xeeee or (go_flash > 12 and 0xcccc or (go_flash > 6 and 0x8888 or 0x2222))
       fillp(p)
@@ -310,6 +416,11 @@ function init_game(start_lvl)
   paddle_passthrough = false
   ball_in_score = false
   go_flash = 0
+  new_hs_pos = nil
+  particles = {}
+  volley = 0
+  plean = 0
+  poff = 0
   serving = true
   clear_delay = 0
   apply_level(level)
@@ -337,6 +448,9 @@ function update_game()
     px = min(128 - pw, px + pspd)
   end
   pdx = px - prev_px
+  local lean_dir = btn_held(btn_right) and 1 or btn_held(btn_left) and -1 or 0
+  plean += (lean_dir - plean) * 0.12
+  poff = flr(plean * 3)
 
   -- tick bump and cooldown timers
   if pbump > 0 then pbump -= 1 end
@@ -366,6 +480,7 @@ function update_game()
       bdx = (dir * 1.5 + rnd(0.6) - 0.3) * bump_mult
       bdy = -1.5 * bump_mult
       serving = false
+      volley = 0
     end
     return
   end
@@ -376,6 +491,19 @@ function update_game()
 
   bx += bdx
   by += bdy
+
+  -- trail: count scales from 1 at min threshold to 4 at max speed
+  local spd = sqrt(bdx*bdx + bdy*bdy)
+  local trail_min = min_spd * 1.8
+  if spd > trail_min then
+    local t = min(1, (spd - trail_min) / (max_spd - trail_min))
+    local count = 1 + flr(t * 3)
+    for i = 1, count do
+      spawn_particle(pbx+rnd(2)-1, pby+rnd(2)-1,
+                     bdx*0.05, bdy*0.05,
+                     8+flr(rnd(8)), 13, 1, 0)
+    end
+  end
 
   -- apply friction and enforce minimum speeds
   bdx *= friction
@@ -403,7 +531,9 @@ function update_game()
   -- effective paddle top accounts for bump offset
   local epy = py + pyo
 
-  local in_x = bx + br >= px and bx - br <= px + pw
+  local hx_l = px + min(0, poff)
+  local hx_r = px + pw + max(0, poff)
+  local in_x = bx + br >= hx_l and bx - br <= hx_r
 
   -- swept top-face check: use prev_pyo for "was above" so pyo changes don't open gaps
   local crossed_top = pby + br <= py + prev_pyo and by + br >= epy
@@ -420,15 +550,26 @@ function update_game()
         bdy = mid(-max_spd, bdy * bump_mult, -0.5)
         pbump = 0
         play_sfx(2)
+        volley = 0
+        local shine = {{7,5},{7,6},{5,6}}
+        for i = 1, 6 do
+          local a = rnd(1)
+          local s = 0.5 + rnd(0.9)
+          local pair = shine[flr(rnd(3))+1]
+          spawn_particle(bx, by,
+                         cos(a)*s, sin(a)*s - 0.2,
+                         16+flr(rnd(12)), pair[1], pair[2], 0, 1)
+        end
       else
         play_sfx(5)
+        volley = 0
       end
     elseif not crossed_top then
       local in_y = by + br >= epy and by - br <= epy + ph
       if in_y then
-        if pbx + br < px and bx + br >= px then
+        if pbx + br < hx_l and bx + br >= hx_l then
           bdx = abs(bdx)
-        elseif pbx - br > px + pw and bx - br <= px + pw then
+        elseif pbx - br > hx_r and bx - br <= hx_r then
           bdx = -abs(bdx)
         end
       end
@@ -470,8 +611,21 @@ function update_game()
       life_flash_t = 45
       paddle_passthrough = true
       play_sfx(1)
+      volley = 0
+      for i = 1, 8 do
+        spawn_particle(bx+rnd(6)-3, 127-br,
+                       bdx*0.2 + rnd(3)-1.5, -(1+rnd(2.5)),
+                       20+flr(rnd(20)), 9, 8, 0.06)
+      end
     else
       play_sfx(9)
+      volley = 0
+      for i = 1, 14 do
+        spawn_particle(bx+rnd(6)-3, 127-br,
+                       bdx*0.3 + rnd(4)-2, -(1.5+rnd(3)),
+                       30+flr(rnd(30)), 8, 2, 0.06)
+      end
+      new_hs_pos = hs_check(score_hi, score_lo)
       go_flash = 145
       mode = "gameover"
     end
@@ -485,6 +639,17 @@ function update_bricks()
               and by+br > b.y and by-br < b.y+bh
       if hit then
         b.alive = false
+        volley += 1
+        local cx = b.x + bw/2
+        local cy = b.y + bh/2
+        local pcount = min(3 + volley, 14)
+        for i = 1, pcount do
+          local a = rnd(1)
+          local s = 0.5 + rnd(1.5)
+          spawn_particle(cx, cy,
+                         cos(a)*s + bdx*0.2, sin(a)*s + bdy*0.2,
+                         20+flr(rnd(20)), 6, 5, 0.05)
+        end
         local was_above = pby + br <= b.y
         local was_below = pby - br >= b.y + bh
         if was_above or was_below then
@@ -505,6 +670,9 @@ function update_transition()
   if btn_held(btn_left) then px = max(0, px - pspd) end
   if btn_held(btn_right) then px = min(128 - pw, px + pspd) end
   pdx = px - prev_px
+  local lean_dir = btn_held(btn_right) and 1 or btn_held(btn_left) and -1 or 0
+  plean += (lean_dir - plean) * 0.12
+  poff = flr(plean * 3)
 
   if pbump > 0 then pbump -= 1 end
   if bump_cd > 0 then bump_cd -= 1 end
@@ -531,22 +699,23 @@ function draw_transition()
   local msg, col
   if serving then
     msg = "level "..level
-    col = 7
+    col = 13
   else
     local phase = flr((trans_timer - 1) / 30)
     if phase == 4 then
-      msg = "level "..level  col = 7
+      msg = "level "..level  col = 13
     elseif phase == 3 then
-      msg = "3"              col = 8
+      msg = "3"              col = 13
     elseif phase == 2 then
-      msg = "2"              col = 9
+      msg = "2"              col = 13
     elseif phase == 1 then
-      msg = "1"              col = 10
+      msg = "1"              col = 13
     else
-      msg = "go!"            col = 11
+      msg = "go!"            col = 7
     end
   end
   local x = 64 - #msg * 4
+  print("\^w\^t"..msg, x+1, 57, 0)
   print("\^w\^t"..msg, x, 56, col)
 end
 
@@ -572,10 +741,12 @@ function add_score()
   score_hi += shi
 end
 
-function fmt_score()
-  local lo = tostr(score_lo or 0)
+function fmt_score(shi, slo)
+  shi = shi or score_hi or 0
+  slo = slo or score_lo or 0
+  local lo = tostr(slo)
   while #lo < 4 do lo = "0"..lo end
-  local s = (score_hi or 0) > 0 and tostr(score_hi)..lo or tostr(score_lo or 0)
+  local s = shi > 0 and tostr(shi)..lo or tostr(slo)
   local r = ""
   for i = 1, #s do
     if i > 1 and (#s - i + 1) % 3 == 0 then r = r.."," end
@@ -586,22 +757,225 @@ end
 
 function draw_hud()
   rectfill(0, 0, 127, 8, 0)
-  print("l"..level, 1, 1, 6)
-  local lhp = lives > 0 and "" or "♥"
+  print("l"..level, 1, 1, 7)
+  local lhp = ""
   for i = 1, lives do lhp = lhp.."♥" end
-  print(lhp, 17, 1, lives > 0 and 8 or 5)
+  if lives > 0 then print(lhp, 17, 1, 8) end
   local sc = fmt_score()
   print(sc, 127 - #sc * 4, 1, 7)
 end
 
+--> PARTICLES
+
+function spawn_particle(x, y, dx, dy, life, col1, col2, grav, sz)
+  if #particles >= 80 then return end
+  add(particles, {
+    x=x, y=y, dx=dx, dy=dy,
+    life=life, max_life=life,
+    col1=col1, col2=col2,
+    grav=grav or 0,
+    sz=sz or 0
+  })
+end
+
+function update_particles()
+  for i = #particles, 1, -1 do
+    local p = particles[i]
+    p.x += p.dx
+    p.y += p.dy
+    p.dy += p.grav
+    p.life -= 1
+    if p.life <= 0 then deli(particles, i) end
+  end
+end
+
+function draw_particles()
+  for p in all(particles) do
+    local t = p.life / p.max_life
+    local col = t > 0.5 and p.col1 or p.col2
+    if p.sz == 1 and t > 0.5 then
+      circfill(p.x, p.y, 1, col)
+    else
+      pset(p.x, p.y, col)
+    end
+  end
+end
+
+--> HIGH SCORES
+
+hs_max = 10
+ini_set = 37  -- A-Z (0-25), 0-9 (26-35), space (36)
+
+function ini_chr(i)
+  if i < 26 then return chr(i+65)
+  elseif i < 36 then return chr(i-26+48)
+  else return " " end
+end
+
+function fmt_ini(c1, c2, c3)
+  return ini_chr(c1)..ini_chr(c2)..ini_chr(c3)
+end
+
+function hs_load()
+  hs = {}
+  for i = 1, hs_max do
+    local b = (i-1)*6
+    add(hs, {
+      shi=dget(b), slo=dget(b+1), lvl=dget(b+2),
+      c1=dget(b+3), c2=dget(b+4), c3=dget(b+5)
+    })
+  end
+end
+
+function hs_save()
+  for i = 1, hs_max do
+    local b = (i-1)*6
+    local e = hs[i]
+    dset(b,e.shi) dset(b+1,e.slo) dset(b+2,e.lvl)
+    dset(b+3,e.c1) dset(b+4,e.c2) dset(b+5,e.c3)
+  end
+end
+
+function hs_init()
+  if dget(60) != 1 then
+    hs = {
+      {shi=5000,slo=0,lvl=21,c1=0, c2=18,c3=18}, -- ASS
+      {shi=2000,slo=0,lvl=16,c1=15,c2=4, c3=4},  -- PEE
+      {shi=500, slo=0,lvl=9, c1=3, c2=8, c3=10}, -- DIK
+    }
+    for i=4,hs_max do add(hs,{shi=0,slo=0,lvl=0,c1=0,c2=0,c3=0}) end
+    hs_save()
+    dset(60,1)
+  else
+    hs_load()
+  end
+end
+
+function hs_check(shi, slo)
+  for i = 1, hs_max do
+    local e = hs[i]
+    if shi > e.shi or (shi == e.shi and slo > e.slo) then
+      return i
+    end
+  end
+end
+
+function hs_insert(pos, shi, slo, lvl, c1, c2, c3)
+  for i = hs_max, pos+1, -1 do hs[i] = hs[i-1] end
+  hs[pos] = {shi=shi,slo=slo,lvl=lvl,c1=c1,c2=c2,c3=c3}
+  hs_save()
+end
+
+-- initials entry
+
+function init_initials()
+  ini_chars = {0,0,0}
+  ini_pos = 1
+  ini_rep_ud = 0
+  mode = "initials"
+end
+
+function update_initials()
+  local mud = false
+
+  if btn_pressed(btn_up) then
+    ini_chars[ini_pos] = (ini_chars[ini_pos]-1)%ini_set
+    ini_rep_ud = 20; mud = -1
+  elseif btn_held(btn_up) then
+    ini_rep_ud -= 1
+    if ini_rep_ud <= 0 then
+      ini_chars[ini_pos] = (ini_chars[ini_pos]-1)%ini_set
+      ini_rep_ud = 4; mud = -1
+    end
+  elseif btn_pressed(btn_down) then
+    ini_chars[ini_pos] = (ini_chars[ini_pos]+1)%ini_set
+    ini_rep_ud = 20; mud = 1
+  elseif btn_held(btn_down) then
+    ini_rep_ud -= 1
+    if ini_rep_ud <= 0 then
+      ini_chars[ini_pos] = (ini_chars[ini_pos]+1)%ini_set
+      ini_rep_ud = 4; mud = 1
+    end
+  end
+
+  if mud == -1 then play_sfx(6)
+  elseif mud == 1 then play_sfx(7)
+  end
+
+  if btn_pressed(btn_x) then
+    if ini_pos < 3 then
+      ini_pos += 1
+      play_sfx(6)
+    else
+      hs_insert(new_hs_pos,score_hi,score_lo,level,
+                ini_chars[1],ini_chars[2],ini_chars[3])
+      play_sfx(10)
+      mode = "hiscore"
+    end
+  elseif btn_pressed(btn_o) and ini_pos > 1 then
+    ini_pos -= 1
+    play_sfx(7)
+  end
+end
+
+function draw_initials()
+  print("\^w\^tnew best!", 24, 16, 10)
+  local sc = fmt_score()
+  print(sc, 64-#sc*2, 40, 7)
+  local lvl_s = "level "..level
+  print(lvl_s, 64-#lvl_s*2, 50, 6)
+  print("enter initials", 64-14*2, 66, 5)
+  for i = 1, 3 do
+    local cx = 48+(i-1)*12
+    local col = i < ini_pos and 11 or i == ini_pos and 7 or 5
+    print("\^w\^t"..ini_chr(ini_chars[i]), cx, 78, col)
+    if i == ini_pos then line(cx,93,cx+7,93,7) end
+  end
+  local prompt = ini_pos < 3 and "❎ next" or "❎ submit"
+  print(prompt, 64-#prompt*2, 108, 14)
+  if ini_pos > 1 then print("🅾️ back", 64-7*2, 116, 5) end
+end
+
+-- high score display
+
+function update_hiscore()
+  if btn_pressed(btn_x) or btn_pressed(btn_o) then
+    sel_level = 1
+    mode = "start"
+  end
+end
+
+function draw_hiscore()
+  print("high scores", 64-11*2, 2, 10)
+  for i = 1, hs_max do
+    local e = hs[i]
+    local y = 13+(i-1)*10
+    local has = e.shi>0 or e.slo>0
+    local col = has and 7 or 5
+    print(i..".", 2, y, col)
+    print(has and fmt_ini(e.c1,e.c2,e.c3) or "---", 16, y, col)
+    if has then
+      local sc = fmt_score(e.shi,e.slo)
+      print(sc, 96-#sc*4, y, col)
+      print("l"..e.lvl, 102, y, 6)
+    end
+  end
+  print("❎ / 🅾️ menu", 50, 118, 14)
+end
+
 function draw_game()
+  draw_particles()
   draw_bricks()
   draw_hud()
   -- drop shadows
-  rectfill(px+1, py+1, px+pw+1, py+ph+1, 0)
+  rectfill(px+1+poff, py+1, px+pw+1+poff, py+ph+1, 0)
   circfill(bx+1, by+1, br, 0)
+  -- afterimage extends the trail visually
+  if not serving then
+    circfill(pbx, pby, br, 1)
+  end
   -- paddle and ball
-  rectfill(px, py+pyo, px+pw, py+pyo+ph, 13)
+  rectfill(px+poff, py+pyo, px+pw+poff, py+pyo+ph, 13)
   circfill(bx, by, br, 13)
   -- shine
   pset(bx-1, by-1, 7)
