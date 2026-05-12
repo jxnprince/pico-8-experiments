@@ -882,13 +882,8 @@ function update_bricks()
         local was_below = pby - br >= b.y + bh
         local spd = sqrt(bdx*bdx + bdy*bdy)
         local bmult = spd < max_spd * 0.4 and 1.02 or 1
-        if rocket_active then
+        if rocket_active or heavy_t > 0 then
           -- punch through: no deflection
-        elseif heavy_t > 0 then
-          -- heavy: vertical deflect only, punch through horizontally
-          if was_above or was_below then
-            bdy = mid(-max_spd, -bdy * bmult, max_spd)
-          end
         elseif was_above or was_below then
           bdy = mid(-max_spd, -bdy * bmult, max_spd)
         else
