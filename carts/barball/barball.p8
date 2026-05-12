@@ -774,6 +774,7 @@ function update_game()
         play_sfx(5)
         volley = 0
       end
+      end  -- close has_rocket else
     elseif not crossed_top then
       local in_y = by + br >= epy and by - br <= epy + ph
       if in_y then
@@ -783,7 +784,6 @@ function update_game()
           bdx = -abs(bdx)
         end
       end
-      end  -- end has_rocket else
     end
   end
 
