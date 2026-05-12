@@ -620,9 +620,19 @@ function update_game()
         spawn_particle(bx, by, cos(a)*s, sin(a)*s-0.2,
                        16+flr(rnd(12)), pair[1], pair[2], 0, 1)
       end
-      bdx = (plean * 1.5 + rnd(0.6) - 0.3) * bump_mult
-      bdy = -1.5 * bump_mult
-      if has_rocket then has_rocket = false; rocket_active = true end
+      if has_rocket then
+        has_rocket = false; rocket_active = true
+        bdx = plean * 1.5 * bump_mult * 3
+        bdy = -1.5 * bump_mult * 3
+        for i = 1, 14 do
+          local a = rnd(1); local s = 1.5 + rnd(2)
+          spawn_particle(bx, by, cos(a)*s, sin(a)*s - 1,
+                         20+flr(rnd(20)), 8, 9, 0.05)
+        end
+      else
+        bdx = (plean * 1.5 + rnd(0.6) - 0.3) * bump_mult
+        bdy = -1.5 * bump_mult
+      end
       serving = false
       bump_rise_t = 6
       paddle_passthrough = true
@@ -640,10 +650,15 @@ function update_game()
     if btn_pressed(btn_x) then
       rocket_held = false
       rocket_active = true
-      bdx = plean * 1.5 * bump_mult
-      bdy = -1.5 * bump_mult
+      bdx = plean * 1.5 * bump_mult * 3
+      bdy = -1.5 * bump_mult * 3
       paddle_passthrough = true
       cancel_bark()
+      for i = 1, 14 do
+        local a = rnd(1); local s = 1.5 + rnd(2)
+        spawn_particle(bx, by, cos(a)*s, sin(a)*s - 1,
+                       20+flr(rnd(20)), 8, 9, 0.05)
+      end
     end
     return
   end
