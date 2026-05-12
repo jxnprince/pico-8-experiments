@@ -824,6 +824,7 @@ function update_game()
       lives -= 1
       lives_lost_in_level += 1
       heart_can_spawn = true
+      big_t = 0; split_t = 0; heavy_t = 0
       fire_bark("-1♥", 8, 90, -1)
       paddle_passthrough = true
       play_sfx(1)
@@ -992,6 +993,8 @@ function update_falling_pus()
   end
 end
 
+pu_names = {"big paddle","split","rocket","heavy ball","portal"}
+
 function activate_powerup(ptype)
   if     ptype == 1 then big_t   = pu_dur
   elseif ptype == 2 then split_t = pu_dur
@@ -999,7 +1002,7 @@ function activate_powerup(ptype)
   elseif ptype == 4 then heavy_t = pu_dur
   elseif ptype == 5 then has_portal = true
   end
-  fire_bark("+"..pu_labels[ptype].."!", 11, 60, 1, py - 12)
+  fire_bark("+"..pu_names[ptype].."!", 11, 60, 1, py - 12)
   play_sfx(10)
 end
 
