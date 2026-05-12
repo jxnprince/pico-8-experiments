@@ -1091,14 +1091,15 @@ function draw_trajectory()
   local post_bounce = 0
   local max_bounces = 1
   local max_post    = is_free_aim and 40 or 999
-  for i = 1, 200 do
+  local check_bricks = not rocket_held and bw >= 5
+  for i = 1, 100 do
     prev_tx, prev_ty = tx, ty
     tx += tdx
     ty += tdy
     if tx - br < 0   then tx = br;      tdx = abs(tdx);  bounces += 1 end
     if tx + br > 127 then tx = 127-br;  tdx = -abs(tdx); bounces += 1 end
     if ty - br < 0   then ty = br;      tdy = abs(tdy);  bounces += 1 end
-    if not rocket_held then
+    if check_bricks then
       for _, b in ipairs(bricks) do
         if b.alive and tx+br > b.x and tx-br < b.x+bw
                    and ty+br > b.y and ty-br < b.y+bh then
@@ -1120,7 +1121,7 @@ end
 
 function draw_transition()
   draw_game()
-  draw_trajectory()
+  if not serving then draw_trajectory() end
   local msg, col
   if serving then
     if trans_timer > 90 then
