@@ -14,9 +14,12 @@ function _init()
   btn_o     = 5
   input = {}
 
-  settings = settings or { palette_i = 1 }
   sel_level = 1
   sel_repeat = 0
+  nudge_l = 0; nudge_r = 0; nudge_u = 0; nudge_d = 0
+  hs_from_gameover = false; hs_entry_done = true; retry_from = "gameover"; hs_can_retry = false
+  go_cursor = 1; win_cursor = 1; wall_sfx_t = 0; traj_phase = 0
+  bark_msg = ""; bark_t = 0; bark_exit_t = 0; bark_enter_t = 0; bark_col = 7; bark_dir = 1; bark_amp = 1; bark_y = 56
 
   local tb = 0
   for i = 1, #level_defs do
@@ -29,6 +32,8 @@ function _init()
 
   cartdata("jxn_breakout_v3")
   hs_init()
+  local saved_p = dget(61)
+  settings = { palette_i = (saved_p >= 1 and saved_p <= #palettes) and saved_p or 1 }
   resolve_palette(settings.palette_i)
   mode = "start"
 end
@@ -41,18 +46,21 @@ function _update60()
   elseif mode == "game" then
     update_game()
     update_particles()
+    update_bark()
   elseif mode == "transition" then
     update_transition()
     update_particles()
+    update_bark()
   elseif mode == "gameover" then
     update_gameover()
     update_particles()
+    update_bark()
   elseif mode == "win" then
     update_win()
   elseif mode == "hiscore" then
     update_hiscore()
-  elseif mode == "initials" then
-    update_initials()
+  elseif mode == "confirm_retry" then
+    update_confirm_retry()
   end
 end
 
@@ -72,8 +80,8 @@ function _draw()
     draw_win()
   elseif mode == "hiscore" then
     draw_hiscore()
-  elseif mode == "initials" then
-    draw_initials()
+  elseif mode == "confirm_retry" then
+    draw_confirm_retry()
   end
 end
 
@@ -94,28 +102,24 @@ function update_input(p)
   p = p or 0
   input.held = input.held or {}
   input.pressed = {}
+  input.released = {}
   for b = 0, 5 do
     local down = btn(b, p)
-    input.pressed[b] = down and not input.held[b]
+    input.pressed[b]  = down and not input.held[b]
+    input.released[b] = not down and input.held[b]
     input.held[b] = down
   end
 end
 
--- true while button is held
-function btn_held(b)
-  return input.held[b]
-end
-
--- true only on the frame the button was first pressed
-function btn_pressed(b)
-  return input.pressed[b]
-end
+function btn_held(b)    return input.held[b]     end
+function btn_pressed(b) return input.pressed[b]  end
+function btn_released(b) return input.released[b] end
 
 --> PALETTES
 
 palette_names = {
   "classic",
-  "submarine",
+  "sub",
   "pastel",
   "matcha",
   "rhenium",
@@ -135,7 +139,7 @@ palette_names = {
 -- lo=shadows
 palettes = {
   {1, 13, 13, 7,  8, -16},       -- classic
-  {-13, -8, 13, 7, -8, -15},     -- submarine
+  {-13, -8, 13, 7, -8, -15},     -- sub
   {-4, -2, 12, 7, -8, 1},        -- pastel
   {3, -5, 11, -6, -2, -13},      -- matcha
   {-15, 14, -2, 15, -1, -3},     -- rhenium
@@ -207,22 +211,28 @@ function update_start()
     end
   end
 
-  if moved == 1 then play_sfx(6)
-  elseif moved == -1 then play_sfx(7)
+  if moved == 1 then play_sfx(6); nudge_r = 6
+  elseif moved == -1 then play_sfx(7); nudge_l = 6
   end
 
   if btn_pressed(btn_up) then
     settings.palette_i = settings.palette_i % #palettes + 1
     resolve_palette(settings.palette_i)
-    play_sfx(6)
+    dset(61, settings.palette_i)
+    play_sfx(6); nudge_u = 6
   elseif btn_pressed(btn_down) then
     settings.palette_i = (settings.palette_i - 2) % #palettes + 1
     resolve_palette(settings.palette_i)
-    play_sfx(7)
+    dset(61, settings.palette_i)
+    play_sfx(7); nudge_d = 6
   end
 
+  if nudge_l > 0 then nudge_l -= 1 end
+  if nudge_r > 0 then nudge_r -= 1 end
+  if nudge_u > 0 then nudge_u -= 1 end
+  if nudge_d > 0 then nudge_d -= 1 end
+
   if btn_pressed(btn_x) then
-    play_sfx(8)
     init_game(sel_level)
   end
   if btn_pressed(btn_o) then
@@ -231,18 +241,19 @@ function update_start()
 end
 
 function draw_start()
-  -- nav controls group
   local lbl = "level "..(sel_level < 10 and " " or "")..sel_level
   local lx = 64 - #lbl * 2
-  print("⬅️", lx - 10, 94, 6)
+  local arr_l = lx - 10
+  local arr_r = lx + #lbl * 4 + 2
+  print("⬅️", arr_l + (nudge_l > 0 and -2 or 0), 94, 6)
   print(lbl, lx, 94, 7)
-  print("➡️", lx + #lbl * 4 + 2, 94, 6)
+  print("➡️", arr_r + (nudge_r > 0 and 2 or 0), 94, 6)
 
   local pn = palette_names[settings.palette_i]
   local ppx = 64 - #pn * 2
-  print("⬆️", ppx - 10, 104, 6)
+  print("⬆️", arr_l, 104 + (nudge_u > 0 and -2 or 0), 6)
   print(pn, ppx, 104, 5)
-  print("⬇️", ppx + #pn * 4 + 2, 104, 6)
+  print("⬇️", arr_r, 104 + (nudge_d > 0 and 2 or 0), 6)
 
   -- action buttons: same row near bottom
   -- ❎ start = 32px, gap 6px, 🅾️ hi scores = 48px ヌ●★ total 86px centered
@@ -253,9 +264,23 @@ end
 --> WIN
 
 function update_win()
-  if btn_pressed(btn_x) then
-    sel_level = 1
-    mode = "start"
+  if btn_pressed(btn_up) then
+    win_cursor = (win_cursor - 2) % 2 + 1
+    play_sfx(7)
+  elseif btn_pressed(btn_down) then
+    win_cursor = win_cursor % 2 + 1
+    play_sfx(6)
+  elseif btn_pressed(btn_x) then
+    if win_cursor == 1 then
+      sel_level = 1; mode = "start"
+    else
+      if new_hs_pos then
+        ini_chars = {0,0,0}; ini_pos = 1; ini_rep_ud = 0; hs_entry_done = false
+      else
+        hs_entry_done = true
+      end
+      hs_from_gameover = true; hs_can_retry = false; mode = "hiscore"
+    end
   end
 end
 
@@ -264,7 +289,16 @@ function draw_win()
   print("\^w\^t"..title, 64 - #title * 4, 36, 11)
   local sc = fmt_score()
   print(sc, 64 - #sc * 2, 62, 7)
-  print("❎ to start", 40, 78, 14)
+  local opts = {
+    "to start",
+    new_hs_pos and "enter hi score" or "hi scores",
+  }
+  local opt_cols = {14, new_hs_pos and 7 or 14}
+  for i = 1, 2 do
+    local y = 80 + (i-1) * 12
+    if i == win_cursor then print(">", 36, y, opt_cols[i]) end
+    print(opts[i], 46, y, opt_cols[i])
+  end
 end
 
 --> GAME OVER
@@ -272,16 +306,57 @@ end
 function update_gameover()
   if go_flash > 0 then
     go_flash -= 1
-    if go_flash == 0 and new_hs_pos then
-      init_initials()
-    end
     return
   end
+  if btn_pressed(btn_up) then
+    go_cursor = (go_cursor - 2) % 3 + 1
+    play_sfx(7)
+  elseif btn_pressed(btn_down) then
+    go_cursor = go_cursor % 3 + 1
+    play_sfx(6)
+  elseif btn_pressed(btn_x) then
+    if go_cursor == 1 then
+      retry_from = "gameover"; mode = "confirm_retry"
+    elseif go_cursor == 2 then
+      if new_hs_pos then
+        ini_chars = {0,0,0}; ini_pos = 1; ini_rep_ud = 0; hs_entry_done = false
+      else
+        hs_entry_done = true
+      end
+      hs_from_gameover = true; hs_can_retry = true; mode = "hiscore"
+    else
+      sel_level = 1; mode = "start"
+    end
+  end
+end
+
+function update_confirm_retry()
   if btn_pressed(btn_x) then
     init_game(level)
   elseif btn_pressed(btn_o) then
-    mode = "hiscore"
+    mode = retry_from
   end
+end
+
+function ordinal(n)
+  local s = tostr(n)
+  if n==1 then return s.."st"
+  elseif n==2 then return s.."nd"
+  elseif n==3 then return s.."rd"
+  else return s.."th" end
+end
+
+function draw_confirm_retry()
+  local msg = "retry level "..level.."?"
+  print("\^w\^t"..msg, 64 - #msg * 4, 34, 8)
+  if gameover_hs_pos then
+    local l1 = "your new "..ordinal(gameover_hs_pos).." place"
+    local l2 = "highscore will be lost"
+    print(l1, 64 - #l1 * 2, 54, 10)
+    print(l2, 64 - #l2 * 2, 62, 10)
+  end
+  print("x yes", 46, 76, 14)
+  print("o back", 46, 86, 5)
 end
 
 function draw_gameover()
@@ -294,11 +369,17 @@ function draw_gameover()
     local sc = fmt_score()
     print(sc, 64 - #sc * 2, 58, 7)
     if go_flash == 0 then
-      if new_hs_pos then
-        print("new hi score!", 64-13*2, 70, 10)
+      local opts = {
+        "retry",
+        new_hs_pos and "enter hi score" or "hi scores",
+        "menu",
+      }
+      local opt_cols = {14, new_hs_pos and 7 or 14, 14}
+      for i = 1, 3 do
+        local y = 76 + (i-1) * 12
+        if i == go_cursor then print(">", 36, y, opt_cols[i]) end
+        print(opts[i], 46, y, opt_cols[i])
       end
-      print("❎ retry", 46, 80, 14)
-      print("🅾️ hi scores", 46, 88, 14)
     else
       local p = go_flash > 18 and 0xeeee or (go_flash > 12 and 0xcccc or (go_flash > 6 and 0x8888 or 0x2222))
       fillp(p)
@@ -386,6 +467,9 @@ end
 function start_transition()
   level += 1
   if level > #level_defs then
+    new_hs_pos = hs_check(score_hi, score_lo)
+    gameover_hs_pos = new_hs_pos
+    win_cursor = 1
     mode = "win"
     return
   end
@@ -412,15 +496,21 @@ function init_game(start_lvl)
   lives = 2
   score_hi = 0
   score_lo = 0
-  life_flash_t = 0
+  bark_msg = ""; bark_t = 0; bark_exit_t = 0
   paddle_passthrough = false
   ball_in_score = false
   go_flash = 0
   new_hs_pos = nil
+  gameover_hs_pos = nil
   particles = {}
   volley = 0
   plean = 0
   poff = 0
+  bump_rise_t = 0
+  bump_grace_t = 0
+  serve_idle_t = 0
+  wall_sfx_t = 0
+  traj_phase = 0
   serving = true
   clear_delay = 0
   apply_level(level)
@@ -452,34 +542,65 @@ function update_game()
   plean += (lean_dir - plean) * 0.12
   poff = flr(plean * 3)
 
+  local at_wall = (btn_held(btn_left) and px == 0) or (btn_held(btn_right) and px == 128 - pw)
+  if at_wall then
+    if wall_sfx_t == 0 then play_sfx(11); wall_sfx_t = 15 end
+    wall_sfx_t -= 1
+  else
+    wall_sfx_t = 0
+  end
+
   -- tick bump and cooldown timers
   if pbump > 0 then pbump -= 1 end
   if bump_cd > 0 then bump_cd -= 1 end
 
-  -- x triggers bump during gameplay if cooldown is clear
-  if not serving and btn_pressed(btn_x) and bump_cd == 0 then
-    do_bump()
-  end
-
-  -- paddle stays up while x is held, returns when released
+  -- press fires bump and kicks paddle up; holding after settles into depressed
   if not serving then
-    pyo = btn_held(btn_x) and -1 or 0
+    if btn_pressed(btn_x) and bump_cd == 0 then
+      do_bump()
+      bump_rise_t = 6
+    end
+    if bump_rise_t > 0 then
+      pyo = -2
+      bump_rise_t -= 1
+      if bump_rise_t == 0 then bump_grace_t = 1 end
+    elseif bump_grace_t > 0 then
+      bump_grace_t -= 1
+      pyo = 0
+    elseif btn_held(btn_x) then
+      pyo = 1
+    else
+      pyo = 0
+    end
   end
 
   -- ball follows paddle until served
   if serving then
     bx = px + pw / 2
     by = py + pyo - br
+    traj_phase += sqrt((plean*1.5*bump_mult)^2 + (1.5*bump_mult)^2) * 0.35
+    serve_idle_t += 1
+    if serve_idle_t == 300 then
+      fire_bark("x serve", 14, 9999, 1, 100)
+    end
     if btn_pressed(btn_x) then
       do_bump()
-      local dir = 0
-      if btn_held(btn_left) then dir = -1
-      elseif btn_held(btn_right) then dir = 1
+      play_sfx(2)
+      local shine = {{7,5},{7,6},{5,6}}
+      for i = 1, 6 do
+        local a = rnd(1)
+        local s = 0.5 + rnd(0.9)
+        local pair = shine[flr(rnd(3))+1]
+        spawn_particle(bx, by, cos(a)*s, sin(a)*s-0.2,
+                       16+flr(rnd(12)), pair[1], pair[2], 0, 1)
       end
-      -- add small random offset so serve is never perfectly vertical
-      bdx = (dir * 1.5 + rnd(0.6) - 0.3) * bump_mult
+      bdx = (plean * 1.5 + rnd(0.6) - 0.3) * bump_mult
       bdy = -1.5 * bump_mult
       serving = false
+      bump_rise_t = 6
+      paddle_passthrough = true
+      serve_idle_t = 0
+      cancel_bark()
       volley = 0
     end
     return
@@ -529,7 +650,8 @@ function update_game()
   end
 
   -- effective paddle top accounts for bump offset
-  local epy = py + pyo
+  local hext = (bump_rise_t==5 or bump_rise_t==3 or bump_rise_t==2) and 1 or 0
+  local epy = py + pyo - hext
 
   local hx_l = px + min(0, poff)
   local hx_r = px + pw + max(0, poff)
@@ -545,22 +667,46 @@ function update_game()
       local hit = (bx - px) / pw
       local angle_bdx = (hit - 0.5) * 4
       bdx = bdx * 0.5 + angle_bdx * 0.2 + pdx * 0.5
-      if pbump > 0 then
+      local is_sweet = bump_rise_t >= 2
+      local is_grace = bump_rise_t == 1 or bump_grace_t > 0
+      if is_sweet then
+        -- sweet spot: full boost + bark
         bdx = mid(-max_spd, bdx * bump_mult, max_spd)
         bdy = mid(-max_spd, bdy * bump_mult, -0.5)
-        pbump = 0
+        local was_perfect = bump_rise_t >= 4
+        bump_rise_t = 0; bump_grace_t = 0
         play_sfx(2)
         volley = 0
         local shine = {{7,5},{7,6},{5,6}}
         for i = 1, 6 do
-          local a = rnd(1)
-          local s = 0.5 + rnd(0.9)
+          local a = rnd(1); local s = 0.5 + rnd(0.9)
           local pair = shine[flr(rnd(3))+1]
-          spawn_particle(bx, by,
-                         cos(a)*s, sin(a)*s - 0.2,
+          spawn_particle(bx, by, cos(a)*s, sin(a)*s-0.2,
                          16+flr(rnd(12)), pair[1], pair[2], 0, 1)
         end
+        if was_perfect then fire_bark("Bump!", 11, 22, 1, py - 10) end
+      elseif is_grace then
+        -- grace: sfx + particles, no bark, no velocity change
+        bump_rise_t = 0; bump_grace_t = 0
+        play_sfx(2)
+        volley = 0
+        local shine = {{7,5},{7,6},{5,6}}
+        for i = 1, 6 do
+          local a = rnd(1); local s = 0.5 + rnd(0.9)
+          local pair = shine[flr(rnd(3))+1]
+          spawn_particle(bx, by, cos(a)*s, sin(a)*s-0.2,
+                         16+flr(rnd(12)), pair[1], pair[2], 0, 1)
+        end
+      elseif btn_held(btn_x) then
+        -- depressed: slow the ball down
+        local spd = sqrt(bdx*bdx + bdy*bdy)
+        local slow = max(min_spd, spd * 0.2)
+        bdx = bdx / spd * slow * 0.5
+        bdy = -slow
+        play_sfx(14)
+        volley = 0
       else
+        bdy = max(-max_spd, bdy * 1.08)
         play_sfx(5)
         volley = 0
       end
@@ -596,9 +742,6 @@ function update_game()
     paddle_passthrough = false
   end
 
-  -- tick life flash
-  if life_flash_t > 0 then life_flash_t -= 1 end
-
   -- bottom collision
   if by + br > 127 then
     if lives > 0 then
@@ -608,7 +751,7 @@ function update_game()
       bdy = flr(bdy / 2)
       if abs(bdy) < min_spd then bdy = -min_spd end
       lives -= 1
-      life_flash_t = 45
+      fire_bark("-1♥", 8, 90, -1)
       paddle_passthrough = true
       play_sfx(1)
       volley = 0
@@ -626,7 +769,11 @@ function update_game()
                        30+flr(rnd(30)), 8, 2, 0.06)
       end
       new_hs_pos = hs_check(score_hi, score_lo)
+      gameover_hs_pos = new_hs_pos
+      local taunt = lose_phrases[flr(rnd(#lose_phrases))+1]
+      fire_bark(taunt, 8, 90, -1)
       go_flash = 145
+      go_cursor = 1
       mode = "gameover"
     end
   end
@@ -640,6 +787,7 @@ function update_bricks()
       if hit then
         b.alive = false
         volley += 1
+        if volley >= 2 then fire_bark(streak_bark(volley), 11, 120) end
         local cx = b.x + bw/2
         local cy = b.y + bh/2
         local pcount = min(3 + volley, 14)
@@ -652,10 +800,12 @@ function update_bricks()
         end
         local was_above = pby + br <= b.y
         local was_below = pby - br >= b.y + bh
+        local spd = sqrt(bdx*bdx + bdy*bdy)
+        local bmult = spd < max_spd * 0.4 and 1.02 or 1
         if was_above or was_below then
-          bdy = -bdy
+          bdy = mid(-max_spd, -bdy * bmult, max_spd)
         else
-          bdx = -bdx
+          bdx = mid(-max_spd, -bdx * bmult, max_spd)
         end
         add_score()
         play_sfx(3)
@@ -678,28 +828,100 @@ function update_transition()
   if bump_cd > 0 then bump_cd -= 1 end
 
   if not serving then
-    if btn_pressed(btn_x) and bump_cd == 0 then do_bump() end
-    pyo = btn_held(btn_x) and -1 or 0
+    if btn_pressed(btn_x) and bump_cd == 0 then
+      do_bump()
+      bump_rise_t = 6
+    end
+    if bump_rise_t > 0 then
+      pyo = -2
+      bump_rise_t -= 1
+      if bump_rise_t == 0 then bump_grace_t = 1 end
+    elseif bump_grace_t > 0 then
+      bump_grace_t -= 1
+      pyo = 0
+    elseif btn_held(btn_x) then
+      pyo = 1
+    else
+      pyo = 0
+    end
   end
 
   if serving then
     bx = px + pw / 2
     by = py + pyo - br
   end
+  traj_phase += (serving and 1.95 or sqrt(bdx*bdx + bdy*bdy)) * 0.35
   trans_timer -= 1
   if serving then
-    if trans_timer <= 90 then mode = "game" end
+    if     trans_timer == 149 then play_sfx(12)
+    elseif trans_timer == 90  then play_sfx(13)
+    end
+    if trans_timer <= 75 then mode = "game" end
   else
+    if     trans_timer == 120 then play_sfx(12)
+    elseif trans_timer == 90  then play_sfx(12)
+    elseif trans_timer == 60  then play_sfx(12)
+    elseif trans_timer == 30  then play_sfx(13)
+    end
     if trans_timer <= 0 then mode = "game" end
+  end
+end
+
+function draw_trajectory()
+  local tdx, tdy
+  if serving then
+    tdx = plean * 1.5 * bump_mult
+    tdy = -1.5 * bump_mult
+  else
+    tdx, tdy = bdx, bdy
+  end
+  local spd = sqrt(tdx*tdx + tdy*tdy)
+  local t = mid(0, 1, (spd - min_spd) / (max_spd - min_spd))
+  local dot_every = max(1, flr((1 - t) * 7) + 1)
+  local offset = serving and 0 or flr(traj_phase) % dot_every
+  local tx, ty = bx, by
+  local prev_tx, prev_ty = tx, ty
+  local bounces = 0
+  local post_bounce = 0
+  local max_bounces = 1
+  local max_post    = serving and 40 or 999
+  for i = 1, 200 do
+    prev_tx, prev_ty = tx, ty
+    tx += tdx
+    ty += tdy
+    if tx - br < 0   then tx = br;      tdx = abs(tdx);  bounces += 1 end
+    if tx + br > 127 then tx = 127-br;  tdx = -abs(tdx); bounces += 1 end
+    if ty - br < 0   then ty = br;      tdy = abs(tdy);  bounces += 1 end
+    for _, b in ipairs(bricks) do
+      if b.alive and tx+br > b.x and tx-br < b.x+bw
+                 and ty+br > b.y and ty-br < b.y+bh then
+        if prev_ty+br <= b.y or prev_ty-br >= b.y+bh then
+          tdy = -tdy
+        else
+          tdx = -tdx
+        end
+        bounces += 1
+        break
+      end
+    end
+    if bounces > 0 then post_bounce += 1 end
+    if ty > py or bounces > max_bounces or post_bounce > max_post then break end
+    if (i - offset + dot_every) % dot_every == 0 then pset(tx, ty, 7) end
   end
 end
 
 function draw_transition()
   draw_game()
+  draw_trajectory()
   local msg, col
   if serving then
-    msg = "level "..level
-    col = 13
+    if trans_timer > 90 then
+      msg = "level "..level
+      col = 13
+    else
+      msg = "go!"
+      col = 7
+    end
   else
     local phase = flr((trans_timer - 1) / 30)
     if phase == 4 then
@@ -799,6 +1021,77 @@ function draw_particles()
       pset(p.x, p.y, col)
     end
   end
+end
+
+--> BARKS
+
+lose_phrases = {
+  "skill issue.",
+  "woof...",
+  "embarrassing...",
+  "hesitation is defeat",
+  "oops",
+}
+
+streak_phrases = {
+  {2,  "double!"},
+  {3,  "triple!"},
+  {4,  "quad!"},
+  {5,  "cinco!"},
+  {6,  "hail satan!"},
+  {7,  "lucky!"},
+  {8,  "wild!"},
+  {9,  "nein!"},
+  {10, "on a roll!"},
+  {25, "on fire!"},
+  {50, "wtf!?"},
+}
+
+function streak_bark(n)
+  local label = ""
+  for _, p in ipairs(streak_phrases) do
+    if n >= p[1] then label = p[2] end
+  end
+  return label.." ("..n..")"
+end
+
+function cancel_bark()
+  bark_t = 0; bark_exit_t = 0; bark_enter_t = 0
+end
+
+function fire_bark(msg, col, t, dir, y)
+  bark_msg = msg
+  bark_col = col or 7
+  bark_t = t or 40
+  bark_exit_t = 0
+  bark_enter_t = 8
+  bark_dir = dir or 1
+  bark_amp = dir == -1 and 2 or 1
+  bark_y = y or 56
+end
+
+function update_bark()
+  if bark_enter_t > 0 then
+    bark_enter_t -= 1
+  elseif bark_t > 0 then
+    bark_t -= 1
+    if bark_t == 0 then bark_exit_t = 10 end
+  elseif bark_exit_t > 0 then
+    bark_exit_t -= 1
+  end
+end
+
+function draw_bark()
+  if bark_enter_t == 0 and bark_t == 0 and bark_exit_t == 0 then return end
+  local x = 64 - #bark_msg * 2
+  local y = bark_y
+  if bark_enter_t > 0 then
+    y += bark_enter_t * bark_dir * bark_amp
+  elseif bark_exit_t > 0 then
+    y -= (10 - bark_exit_t) * bark_dir * bark_amp
+  end
+  print(bark_msg, x+1, y+1, 0)
+  print(bark_msg, x, y, bark_col)
 end
 
 --> HIGH SCORES
@@ -939,17 +1232,83 @@ end
 -- high score display
 
 function update_hiscore()
-  if btn_pressed(btn_x) or btn_pressed(btn_o) then
-    sel_level = 1
-    mode = "start"
+  if hs_from_gameover and new_hs_pos and not hs_entry_done then
+    local mud = false
+    if btn_pressed(btn_up) then
+      ini_chars[ini_pos] = (ini_chars[ini_pos]-1)%ini_set
+      ini_rep_ud = 20; mud = -1
+    elseif btn_held(btn_up) then
+      ini_rep_ud -= 1
+      if ini_rep_ud <= 0 then
+        ini_chars[ini_pos] = (ini_chars[ini_pos]-1)%ini_set
+        ini_rep_ud = 4; mud = -1
+      end
+    elseif btn_pressed(btn_down) then
+      ini_chars[ini_pos] = (ini_chars[ini_pos]+1)%ini_set
+      ini_rep_ud = 20; mud = 1
+    elseif btn_held(btn_down) then
+      ini_rep_ud -= 1
+      if ini_rep_ud <= 0 then
+        ini_chars[ini_pos] = (ini_chars[ini_pos]+1)%ini_set
+        ini_rep_ud = 4; mud = 1
+      end
+    end
+    if mud == -1 then play_sfx(6) elseif mud == 1 then play_sfx(7) end
+    if btn_pressed(btn_x) then
+      if ini_pos < 3 then
+        ini_pos += 1; play_sfx(6)
+      else
+        hs_insert(new_hs_pos,score_hi,score_lo,level,ini_chars[1],ini_chars[2],ini_chars[3])
+        play_sfx(10)
+        new_hs_pos = nil
+        hs_entry_done = true
+      end
+    elseif btn_pressed(btn_o) then
+      if ini_pos > 1 then
+        ini_pos -= 1; play_sfx(7)
+      else
+        mode = hs_can_retry and "gameover" or "win"
+        play_sfx(7)
+      end
+    end
+  else
+    if btn_pressed(btn_x) then
+      if hs_can_retry then
+        retry_from = "hiscore"
+        mode = "confirm_retry"
+      else
+        hs_from_gameover = false; sel_level = 1; mode = "start"
+      end
+    elseif btn_pressed(btn_o) then
+      hs_from_gameover = false; hs_can_retry = false
+      sel_level = 1; mode = "start"
+    end
   end
 end
 
 function draw_hiscore()
+  local showing_entry = hs_from_gameover and new_hs_pos and not hs_entry_done
   print("high scores", 64-11*2, 2, 10)
-  for i = 1, hs_max do
+  local list_y = 13
+  local list_n = hs_max
+  if showing_entry then
+    print("new best!", 64-9*2, 11, 10)
+    local ex = 46
+    for i = 1, 3 do
+      local col = i < ini_pos and 11 or i == ini_pos and 7 or 5
+      print("\^w\^t"..ini_chr(ini_chars[i]), ex+(i-1)*14, 19, col)
+      if i == ini_pos then line(ex+(i-1)*14, 34, ex+(i-1)*14+7, 34, 7) end
+    end
+    local prompt = ini_pos < 3 and "x next" or "x submit"
+    print(prompt, 64-#prompt*2, 38, 14)
+    print("o skip", 64-6*2, 38, 14)
+    line(0, 46, 127, 46, 5)
+    list_y = 49
+    list_n = 6
+  end
+  for i = 1, list_n do
     local e = hs[i]
-    local y = 13+(i-1)*10
+    local y = list_y+(i-1)*10
     local has = e.shi>0 or e.slo>0
     local col = has and 7 or 5
     print(i..".", 2, y, col)
@@ -960,7 +1319,15 @@ function draw_hiscore()
       print("l"..e.lvl, 102, y, 6)
     end
   end
-  print("❎ / 🅾️ menu", 50, 118, 14)
+  if not showing_entry then
+    if hs_can_retry then
+      print("x retry  o menu", 64-15*2, 118, 14)
+    elseif hs_from_gameover then
+      print("x to start  o menu", 64-18*2, 118, 14)
+    else
+      print("❎ / 🅾️ menu", 50, 118, 14)
+    end
+  end
 end
 
 function draw_game()
@@ -968,7 +1335,8 @@ function draw_game()
   draw_bricks()
   draw_hud()
   -- drop shadows
-  rectfill(px+1+poff, py+1, px+pw+1+poff, py+ph+1, 0)
+  local sdy = (bump_rise_t >= 2) and 2 or 1
+  rectfill(px+1+poff, py+sdy, px+pw+1+poff, py+ph+sdy, 0)
   circfill(bx+1, by+1, br, 0)
   -- afterimage extends the trail visually
   if not serving then
@@ -979,11 +1347,8 @@ function draw_game()
   circfill(bx, by, br, 13)
   -- shine
   pset(bx-1, by-1, 7)
-  -- life lost flash
-  if life_flash_t > 0 then
-    local col = life_flash_t > 30 and 7 or (life_flash_t > 15 and 8 or 2)
-    print("-1♥", 52, 56, col)
-  end
+  if serving then draw_trajectory() end
+  draw_bark()
 end
 
 __gfx__
@@ -996,12 +1361,19 @@ __gfx__
 __sfx__
 000100000b63009050080400704007030050300403003020020200102000030000300003000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00020000146201462038720357203372031710300102f0102d0102b01029010270102601025110231102211020110201101e1101d1101b11019210162101421012210112100e3100c3100a310074100641003410
-000100000e6100301004010070200a0200d02010020150201a0102001026010007000000022000220000000000000210002100000000000001e0001f000000000000000000190001800000000000000000000000
-000100000371004610066100a6100c7200b7200972007720077200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000100000e6100301004010070100a0200d02010020150101a0102001026010007000000022000220000000000000210002100000000000001e0001f000000000000000000190001800000000000000000000000
+00010000000000331006310097100c7200b7200972007710057100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0001000019020130200e020050302100021000200001e0001b0001900017000130001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0001000018020116200c0200902002020020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000100000504006010060200603006030060200001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 000400002801000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 000400001f01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 000100000704008040090400b0300c0300d0300f030100301302016020190201b0201e01024010290102d01035010000000000000000000000000000000000000000000000000000000000000000000000000000
-000200001a4202043024440286502d6503365034650336402f6402a63027630226301f6201f6201e6201d6101c6101a6201862013410134101241011420104300f4200d4200b4300942008420064200441000450
-0003000014620146201462019600302002c6202c6202f2203722039200382003d2003f20000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000200001a4102041024410286102d6103361034610336102f6102a61027610226101f6101f6101e6101d6101c6101a6201862013410134101241011410104200f4100d4100b4200941008410064100441000420
+0003000014610146101461019600302002c6102c6102f2103721039200382003d2003f20000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00010000087000772006720067300673006720047200471006f00000003b7003b7003b7003b7003b7000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000500000451004500045100450000500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00050000000000b5100b5100b51000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000100000c5100c520060200502004020010300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+__music__
+00 50424344
+
