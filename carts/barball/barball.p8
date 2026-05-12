@@ -46,6 +46,7 @@ function _update60()
   elseif mode == "game" then
     update_game()
     update_hearts()
+    update_falling_pus()
     update_particles()
     update_bark()
   elseif mode == "transition" then
@@ -444,7 +445,8 @@ function init_bricks()
         x = row_x + c * (bw + bgap),
         y = bstart_y + r * (bh + bgap_y),
         alive = true,
-        has_heart = false
+        has_heart = false,
+        has_pu = false
       })
     end
   end
@@ -477,6 +479,7 @@ function start_transition()
   end
   apply_level(level)
   assign_hearts()
+  assign_powerup_brick()
   trans_timer = 150
   mode = "transition"
 end
@@ -520,8 +523,18 @@ function init_game(start_lvl)
   traj_phase = 0
   serving = true
   clear_delay = 0
+  falling_pus = {}
+  pu_type = 0
+  big_t = 0
+  split_t = 0
+  heavy_t = 0
+  has_rocket = false
+  rocket_held = false
+  rocket_active = false
+  has_portal = false
   apply_level(level)
   assign_hearts()
+  assign_powerup_brick()
   trans_timer = 150
   mode = "transition"
 end
@@ -536,6 +549,11 @@ end
 function update_game()
   -- snapshot pyo before any changes (used in swept collision)
   local prev_pyo = pyo
+
+  pw = big_t > 0 and 36 or 24
+  if big_t   > 0 then big_t   -= 1 end
+  if split_t > 0 then split_t -= 1 end
+  if heavy_t > 0 then heavy_t -= 1 end
 
   -- move paddle, track velocity
   local prev_px = px
@@ -604,12 +622,28 @@ function update_game()
       end
       bdx = (plean * 1.5 + rnd(0.6) - 0.3) * bump_mult
       bdy = -1.5 * bump_mult
+      if has_rocket then has_rocket = false; rocket_active = true end
       serving = false
       bump_rise_t = 6
       paddle_passthrough = true
       serve_idle_t = 0
       cancel_bark()
       volley = 0
+    end
+    return
+  end
+
+  -- rocket held: ball sticks to paddle, player re-aims and fires
+  if rocket_held then
+    bx = px + pw / 2
+    by = py + pyo - br
+    if btn_pressed(btn_x) then
+      rocket_held = false
+      rocket_active = true
+      bdx = plean * 1.5 * bump_mult
+      bdy = -1.5 * bump_mult
+      paddle_passthrough = true
+      cancel_bark()
     end
     return
   end
@@ -644,17 +678,34 @@ function update_game()
   if bx - br < 0 then
     bx = br
     bdx = -bdx
+    rocket_active = false
     play_sfx(0)
   end
   if bx + br > 127 then
     bx = 127 - br
     bdx = -bdx
+    rocket_active = false
     play_sfx(0)
   end
   if by - br < 0 then
     by = br
     bdy = -bdy
+    rocket_active = false
     play_sfx(0)
+  end
+
+  -- split paddle collision (above main paddle, no bump mechanics)
+  if split_t > 0 and not paddle_passthrough then
+    local spy  = py + pyo - 14
+    local spx_l = px + flr((pw - 14) / 2) + poff
+    local spx_r = spx_l + 14
+    local s_crossed = pby + br <= spy and by + br >= spy
+    local s_in_x = bx + br >= spx_l and bx - br <= spx_r
+    if s_crossed and s_in_x then
+      by = spy - br
+      bdy = -abs(bdy)
+      play_sfx(5)
+    end
   end
 
   -- effective paddle top accounts for bump offset
@@ -671,6 +722,11 @@ function update_game()
   if not paddle_passthrough then
     if crossed_top and in_x then
       by = epy - br
+      if has_rocket then
+        has_rocket = false
+        rocket_held = true
+        bdx = 0; bdy = 0
+      else
       bdy = -abs(bdy)
       local hit = (bx - px) / pw
       local angle_bdx = (hit - 0.5) * 4
@@ -727,6 +783,7 @@ function update_game()
           bdx = -abs(bdx)
         end
       end
+      end  -- end has_rocket else
     end
   end
 
@@ -752,7 +809,13 @@ function update_game()
 
   -- bottom collision
   if by + br > 127 then
-    if lives > 0 then
+    if has_portal then
+      has_portal = false
+      by = br
+      bdy = -abs(bdy)
+      fire_bark("portal!", 11, 60, 1, 64)
+      play_sfx(10)
+    elseif lives > 0 then
       by = 127 - br
       bdy = -abs(bdy)
       bdx = flr(bdx / 2)
@@ -799,6 +862,9 @@ function update_bricks()
         if b.has_heart and lives < lives_start then
           spawn_heart(b.x + bw/2, b.y)
         end
+        if b.has_pu then
+          spawn_falling_pu(b.x + bw/2, b.y, pu_type)
+        end
         volley += 1
         if volley >= 2 then fire_bark(streak_bark(volley), 11, 120) end
         local cx = b.x + bw/2
@@ -815,7 +881,14 @@ function update_bricks()
         local was_below = pby - br >= b.y + bh
         local spd = sqrt(bdx*bdx + bdy*bdy)
         local bmult = spd < max_spd * 0.4 and 1.02 or 1
-        if was_above or was_below then
+        if rocket_active then
+          -- punch through: no deflection
+        elseif heavy_t > 0 then
+          -- heavy: vertical deflect only, punch through horizontally
+          if was_above or was_below then
+            bdy = mid(-max_spd, -bdy * bmult, max_spd)
+          end
+        elseif was_above or was_below then
           bdy = mid(-max_spd, -bdy * bmult, max_spd)
         else
           bdx = mid(-max_spd, -bdx * bmult, max_spd)
@@ -829,6 +902,7 @@ function update_bricks()
 end
 
 function update_transition()
+  pw = big_t > 0 and 36 or 24
   local prev_px = px
   if btn_held(btn_left) then px = max(0, px - pspd) end
   if btn_held(btn_right) then px = min(128 - pw, px + pspd) end
@@ -859,7 +933,7 @@ function update_transition()
     end
   end
 
-  if serving then
+  if serving or rocket_held then
     bx = px + pw / 2
     by = py + pyo - br
   end
@@ -877,6 +951,61 @@ function update_transition()
     elseif trans_timer == 30  then play_sfx(13)
     end
     if trans_timer <= 0 then mode = "game" end
+  end
+end
+
+pu_labels = {"b","s","r","h","p"}
+pu_dur = 600
+
+function assign_powerup_brick()
+  local pool = {}
+  for b in all(bricks) do
+    if not b.has_heart then add(pool, b) end
+  end
+  if #pool == 0 then
+    for b in all(bricks) do add(pool, b) end
+  end
+  if #pool > 0 then
+    local brick = pool[flr(rnd(#pool)) + 1]
+    brick.has_pu = true
+    pu_type = flr(rnd(5)) + 1
+  end
+end
+
+function spawn_falling_pu(x, y, ptype)
+  local hw = bw >= 14 and 4 or bw >= 4 and 3 or bw >= 2 and 2 or 1
+  add(falling_pus, {x=x, y=y, dy=0.5, ptype=ptype, hw=hw, hh=5})
+end
+
+function update_falling_pus()
+  for i = #falling_pus, 1, -1 do
+    local p = falling_pus[i]
+    p.y += p.dy
+    local in_x = p.x - p.hw <= px + pw and p.x + p.hw >= px
+    local in_y = p.y + p.hh >= py + pyo and p.y <= py + pyo + ph
+    if in_x and in_y then
+      activate_powerup(p.ptype)
+      deli(falling_pus, i)
+    elseif p.y > 130 then
+      deli(falling_pus, i)
+    end
+  end
+end
+
+function activate_powerup(ptype)
+  if     ptype == 1 then big_t   = pu_dur
+  elseif ptype == 2 then split_t = pu_dur
+  elseif ptype == 3 then has_rocket = true
+  elseif ptype == 4 then heavy_t = pu_dur
+  elseif ptype == 5 then has_portal = true
+  end
+  fire_bark("+"..pu_labels[ptype].."!", 11, 60, 1, py - 12)
+  play_sfx(10)
+end
+
+function draw_falling_pus()
+  for p in all(falling_pus) do
+    print(pu_labels[p.ptype], p.x - 2, p.y, 11)
   end
 end
 
@@ -937,7 +1066,8 @@ end
 
 function draw_trajectory()
   local tdx, tdy
-  if serving then
+  local is_free_aim = serving or rocket_held
+  if is_free_aim then
     tdx = plean * 1.5 * bump_mult
     tdy = -1.5 * bump_mult
   else
@@ -946,13 +1076,13 @@ function draw_trajectory()
   local spd = sqrt(tdx*tdx + tdy*tdy)
   local t = mid(0, 1, (spd - min_spd) / (max_spd - min_spd))
   local dot_every = max(1, flr((1 - t) * 7) + 1)
-  local offset = serving and 0 or flr(traj_phase) % dot_every
+  local offset = is_free_aim and 0 or flr(traj_phase) % dot_every
   local tx, ty = bx, by
   local prev_tx, prev_ty = tx, ty
   local bounces = 0
   local post_bounce = 0
   local max_bounces = 1
-  local max_post    = serving and 40 or 999
+  local max_post    = is_free_aim and 40 or 999
   for i = 1, 200 do
     prev_tx, prev_ty = tx, ty
     tx += tdx
@@ -960,16 +1090,18 @@ function draw_trajectory()
     if tx - br < 0   then tx = br;      tdx = abs(tdx);  bounces += 1 end
     if tx + br > 127 then tx = 127-br;  tdx = -abs(tdx); bounces += 1 end
     if ty - br < 0   then ty = br;      tdy = abs(tdy);  bounces += 1 end
-    for _, b in ipairs(bricks) do
-      if b.alive and tx+br > b.x and tx-br < b.x+bw
-                 and ty+br > b.y and ty-br < b.y+bh then
-        if prev_ty+br <= b.y or prev_ty-br >= b.y+bh then
-          tdy = -tdy
-        else
-          tdx = -tdx
+    if not rocket_held then
+      for _, b in ipairs(bricks) do
+        if b.alive and tx+br > b.x and tx-br < b.x+bw
+                   and ty+br > b.y and ty-br < b.y+bh then
+          if prev_ty+br <= b.y or prev_ty-br >= b.y+bh then
+            tdy = -tdy
+          else
+            tdx = -tdx
+          end
+          bounces += 1
+          break
         end
-        bounces += 1
-        break
       end
     end
     if bounces > 0 then post_bounce += 1 end
@@ -1014,6 +1146,17 @@ function draw_bricks()
     if b.alive then
       rectfill(b.x+1, b.y+1, b.x+bw+1, b.y+bh+1, 0)
       rectfill(b.x, b.y, b.x+bw, b.y+bh, 5)
+      local cx = b.x + flr(bw/2)
+      local cy = b.y
+      if b.has_heart and heart_can_spawn then
+        if bw >= 4 then print("♥", cx-2, cy, 8)
+        else pset(cx, cy+flr(bh/2), 8) end
+      end
+      if b.has_pu then
+        local lbl = pu_labels[pu_type]
+        if bw >= 4 then print(lbl, cx-2, cy, 11)
+        else pset(cx, cy+flr(bh/2), 11) end
+      end
     end
   end
 end
@@ -1410,13 +1553,21 @@ function draw_game()
   if not serving then
     circfill(pbx, pby, br, 1)
   end
+  -- split paddle
+  if split_t > 0 then
+    local spy = py + pyo - 14
+    local spx = px + flr((pw - 14) / 2) + poff
+    rectfill(spx+1, spy+1, spx+15, spy+ph+1, 0)
+    rectfill(spx, spy, spx+14, spy+ph, 13)
+  end
   -- paddle and ball
   rectfill(px+poff, py+pyo, px+pw+poff, py+pyo+ph, 13)
   circfill(bx, by, br, 13)
   -- shine
   pset(bx-1, by-1, 7)
-  if serving then draw_trajectory() end
+  if serving or rocket_held then draw_trajectory() end
   draw_hearts()
+  draw_falling_pus()
   draw_bark()
 end
 
