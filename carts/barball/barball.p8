@@ -45,6 +45,7 @@ function _update60()
     update_start()
   elseif mode == "game" then
     update_game()
+    update_hearts()
     update_particles()
     update_bark()
   elseif mode == "transition" then
@@ -442,7 +443,8 @@ function init_bricks()
       add(bricks, {
         x = row_x + c * (bw + bgap),
         y = bstart_y + r * (bh + bgap_y),
-        alive = true
+        alive = true,
+        has_heart = false
       })
     end
   end
@@ -473,7 +475,9 @@ function start_transition()
     mode = "win"
     return
   end
+  hearts = {}
   apply_level(level)
+  assign_hearts()
   trans_timer = 150
   mode = "transition"
 end
@@ -494,6 +498,10 @@ function init_game(start_lvl)
   pbx = bx
   pby = by
   lives = 2
+  lives_start = 2
+  lives_lost_in_level = 0
+  heart_can_spawn = false
+  hearts = {}
   score_hi = 0
   score_lo = 0
   bark_msg = ""; bark_t = 0; bark_exit_t = 0
@@ -514,6 +522,7 @@ function init_game(start_lvl)
   serving = true
   clear_delay = 0
   apply_level(level)
+  assign_hearts()
   trans_timer = 150
   mode = "transition"
 end
@@ -751,6 +760,8 @@ function update_game()
       bdy = flr(bdy / 2)
       if abs(bdy) < min_spd then bdy = -min_spd end
       lives -= 1
+      lives_lost_in_level += 1
+      heart_can_spawn = true
       fire_bark("-1♥", 8, 90, -1)
       paddle_passthrough = true
       play_sfx(1)
@@ -786,6 +797,9 @@ function update_bricks()
               and by+br > b.y and by-br < b.y+bh
       if hit then
         b.alive = false
+        if b.has_heart and lives < lives_start then
+          spawn_heart(b.x + bw/2, b.y)
+        end
         volley += 1
         if volley >= 2 then fire_bark(streak_bark(volley), 11, 120) end
         local cx = b.x + bw/2
@@ -864,6 +878,61 @@ function update_transition()
     elseif trans_timer == 30  then play_sfx(13)
     end
     if trans_timer <= 0 then mode = "game" end
+  end
+end
+
+function assign_hearts()
+  if heart_can_spawn then
+    for b in all(bricks) do
+      if rnd(100) < 1 then b.has_heart = true end
+    end
+  end
+  if lives_lost_in_level > 0 and lives < lives_start then
+    local pool = {}
+    for b in all(bricks) do add(pool, b) end
+    if #pool > 0 then
+      pool[flr(rnd(#pool)) + 1].has_heart = true
+    end
+  end
+  lives_lost_in_level = 0
+end
+
+function spawn_heart(x, y)
+  local hw = bw >= 14 and 4 or bw >= 4 and 3 or bw >= 2 and 2 or 1
+  local hh = bw >= 14 and 11 or bw >= 4 and 5 or bw >= 2 and 5 or 1
+  add(hearts, {x=x, y=y, dy=0.5, bw=bw, hw=hw, hh=hh})
+end
+
+function update_hearts()
+  for i = #hearts, 1, -1 do
+    local h = hearts[i]
+    h.y += h.dy
+    local in_x = h.x - h.hw <= px + pw and h.x + h.hw >= px
+    local in_y = h.y + h.hh >= py + pyo and h.y <= py + pyo + ph
+    if in_x and in_y then
+      if lives < lives_start then
+        lives += 1
+        fire_bark("+1♥", 8, 60, 1, py - 10)
+        play_sfx(10)
+      end
+      deli(hearts, i)
+    elseif h.y > 130 then
+      deli(hearts, i)
+    end
+  end
+end
+
+function draw_hearts()
+  for h in all(hearts) do
+    if h.bw >= 14 then
+      print("\^w\^t♥", h.x - 4, h.y, 8)
+    elseif h.bw >= 4 then
+      print("\^w♥", h.x - 4, h.y, 8)
+    elseif h.bw >= 2 then
+      print("♥", h.x - 2, h.y, 8)
+    else
+      pset(h.x, h.y, 8)
+    end
   end
 end
 
@@ -1348,6 +1417,7 @@ function draw_game()
   -- shine
   pset(bx-1, by-1, 7)
   if serving then draw_trajectory() end
+  draw_hearts()
   draw_bark()
 end
 
