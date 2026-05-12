@@ -1590,6 +1590,11 @@ function draw_game()
   -- shine
   pset(bx-1, by-1, 7)
   if serving or rocket_held then draw_trajectory() end
+  if has_portal then
+    local t = flr(time() * 8) % 2 == 0
+    line(0, 127, 127, 127, t and 11 or 7)
+    print("portal", 64 - 6*2, 120, t and 11 or 7)
+  end
   draw_hearts()
   draw_falling_pus()
   draw_bark()
