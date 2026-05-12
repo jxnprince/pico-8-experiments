@@ -475,7 +475,6 @@ function start_transition()
     mode = "win"
     return
   end
-  hearts = {}
   apply_level(level)
   assign_hearts()
   trans_timer = 150
