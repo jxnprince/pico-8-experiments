@@ -542,7 +542,6 @@ function init_game(start_lvl)
   serving = true
   clear_delay = 0
   falling_pus = {}
-  pu_type = 0
   big_count = 0
   split_count = 0
   heavy_t = 0
